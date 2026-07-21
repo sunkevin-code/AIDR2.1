@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIDR 行为运营中心 Demo</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      color: #18212f;
+      background: #f2f4f7;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: #f2f4f7; }
+    button, select, input { font: inherit; }
+    button, select, input {
+      border: 1px solid #cbd2da;
+      background: #fff;
+      color: #243142;
+      border-radius: 6px;
+    }
+    button { padding: 7px 10px; cursor: pointer; }
+    button:hover { background: #f4f7f8; }
+    button.primary { color: #fff; background: #176f62; border-color: #176f62; }
+    button.primary:hover { background: #125b50; }
+    button.danger { color: #b42318; border-color: #e2b3ae; }
+    select, input { padding: 7px 9px; min-height: 34px; }
+    .muted { color: #687385; }
+    .good { color: #237a66; }
+    .warn { color: #a35b00; }
+    .bad { color: #b42318; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 7px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      background: #eef1f4;
+      color: #495464;
+    }
+    .badge.allow { background: #e6f4ef; color: #237a66; }
+    .badge.alert { background: #fff2d8; color: #8b5400; }
+    .badge.block { background: #fdebea; color: #b42318; }
+    .badge.model { background: #e8f1fb; color: #2563a8; }
+    .badge.rules { background: #fff2d8; color: #8b5400; }
+    .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { padding: 20px 12px; color: #d8dee8; background: #171c24; }
+    .brand { padding: 0 10px 20px; border-bottom: 1px solid #343b47; }
+    .brand h1 { margin: 0; color: #fff; font-size: 20px; }
+    .brand p { margin: 5px 0 0; color: #8fd5c4; font-size: 12px; }
+    nav { display: grid; gap: 4px; padding-top: 18px; }
+    .nav-item { padding: 10px 12px; color: #adb7c6; border-radius: 6px; }
+    .nav-item.active { color: #fff; background: #29313d; }
+    .main { min-width: 0; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 0 24px;
+      background: #fff;
+      border-bottom: 1px solid #dfe3e8;
+    }
+    .topbar h2 { margin: 0; font-size: 18px; }
+    .live { display: flex; align-items: center; gap: 7px; color: #237a66; font-size: 12px; font-weight: 700; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #2fa184; }
+    .content { max-width: 1500px; margin: 0 auto; padding: 20px 24px 42px; }
+    .scope-bar {
+      display: grid;
+      grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) minmax(150px, .8fr) minmax(190px, 1.2fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      margin-bottom: 14px;
+      background: #fff;
+      border: 1px solid #dfe3e8;
+      border-radius: 7px;
+    }
+    .scope-label { color: #687385; font-size: 11px; }
+    .scope-bar input { width: 100%; }
+    .scope-bar select { width: 100%; }
+    .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .stat { padding: 11px 13px; background: #fff; border: 1px solid #dfe3e8; border-radius: 7px; }
+    .stat span { display: block; color: #687385; font-size: 11px; }
+    .stat strong { display: block; margin-top: 4px; font-size: 21px; }
+    .stat small { display: block; margin-top: 3px; color: #84909c; font-size: 10px; }
+    .stat.warn strong { color: #a35b00; }
+    .stat.bad strong { color: #b42318; }
+    .stat.good strong { color: #237a66; }
+    .notice { padding: 10px 12px; margin-bottom: 14px; color: #536273; background: #f8fbfb; border: 1px solid #cce5df; border-left: 3px solid #176f62; border-radius: 6px; font-size: 12px; }
+    .workspace { display: grid; grid-template-columns: 270px minmax(520px, 1fr) 330px; gap: 12px; align-items: start; }
+    .panel { min-width: 0; background: #fff; border: 1px solid #dfe3e8; border-radius: 7px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; padding: 11px 13px; border-bottom: 1px solid #e7eaee; }
+    .panel-head h3, .panel-head h4 { margin: 0; font-size: 13px; }
+    .panel-body { padding: 12px; }
+    .incident-list { display: grid; gap: 7px; max-height: 655px; overflow: auto; }
+    .incident {
+      padding: 10px;
+      text-align: left;
+      border: 1px solid #dfe3e8;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #fff;
+    }
+    .incident:hover, .incident.selected { border-color: #72b9aa; background: #f7fcfb; }
+    .incident.selected { box-shadow: inset 3px 0 #176f62; }
+    .incident-top, .incident-meta, .detail-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .incident-title { margin: 7px 0 5px; font-size: 12px; font-weight: 700; line-height: 1.4; }
+    .incident-meta { color: #687385; font-size: 10px; }
+    .incident-agent { margin-top: 8px; color: #536273; font-size: 11px; }
+    .graph-panel { overflow: hidden; }
+    .graph-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+    .graph-tools button { padding: 5px 8px; font-size: 11px; }
+    .graph-caption { display: flex; justify-content: space-between; gap: 10px; padding: 9px 12px; color: #687385; border-bottom: 1px solid #e7eaee; font-size: 11px; }
+    .graph-wrap { position: relative; height: 520px; padding: 10px; overflow: hidden; background: #f8fafb; }
+    .graph-wrap::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(#e4eaec 1px, transparent 1px), linear-gradient(90deg, #e4eaec 1px, transparent 1px); background-size: 24px 24px; opacity: .7; }
+    svg { position: relative; z-index: 1; display: block; width: 100%; height: 100%; }
+    .lane-label { fill: #687385; font-size: 12px; font-weight: 700; }
+    .lane-line { stroke: #dce4e7; stroke-width: 1; stroke-dasharray: 4 5; }
+    .edge { fill: none; stroke: #8aa4a5; stroke-width: 2; marker-end: url(#arrow); }
+    .edge.risk { stroke: #c27300; marker-end: url(#arrowRisk); }
+    .edge.block { stroke: #b42318; marker-end: url(#arrowBlock); }
+    .node { cursor: pointer; }
+    .node rect { fill: #fff; stroke: #aebdc2; stroke-width: 1.5; rx: 7; }
+    .node:hover rect, .node.selected rect { stroke: #176f62; stroke-width: 2.5; }
+    .node.allow rect { stroke: #6eaf9e; }
+    .node.alert rect { fill: #fffaf0; stroke: #c27300; }
+    .node.block rect { fill: #fff7f6; stroke: #b42318; }
+    .node-title { fill: #18212f; font-size: 12px; font-weight: 700; }
+    .node-sub { fill: #687385; font-size: 10px; }
+    .node-time { fill: #8a95a1; font-size: 9px; }
+    .node-index { fill: #fff; font-size: 9px; font-weight: 700; text-anchor: middle; }
+    .index-bg { fill: #176f62; }
+    .node.alert .index-bg { fill: #c27300; }
+    .node.block .index-bg { fill: #b42318; }
+    .graph-legend { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-top: 1px solid #e7eaee; }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; color: #687385; border: 1px solid #dfe3e8; border-radius: 5px; font-size: 10px; }
+    .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: #6eaf9e; }
+    .legend-dot.alert { background: #c27300; }
+    .legend-dot.block { background: #b42318; }
+    .detail-panel { min-height: 655px; }
+    .detail-body { display: grid; gap: 13px; padding: 13px; }
+    .detail-title { margin: 0; font-size: 15px; }
+    .detail-subtitle { margin: 4px 0 0; color: #687385; font-size: 11px; line-height: 1.45; }
+    .detail-block { padding-bottom: 12px; border-bottom: 1px solid #e7eaee; }
+    .detail-block:last-child { border-bottom: 0; padding-bottom: 0; }
+    .detail-block h4 { margin: 0 0 8px; color: #536273; font-size: 11px; }
+    .detail-row { align-items: flex-start; padding: 5px 0; color: #536273; font-size: 11px; }
+    .detail-row b { color: #18212f; text-align: right; overflow-wrap: anywhere; }
+    .trace { display: grid; gap: 7px; }
+    .trace-step { position: relative; padding: 8px 9px 8px 28px; color: #536273; background: #f8fafb; border: 1px solid #e1e7ea; border-radius: 5px; font-size: 11px; }
+    .trace-step::before { content: attr(data-step); position: absolute; left: 8px; top: 8px; color: #176f62; font-weight: 800; }
+    .trace-step strong { display: block; margin-bottom: 3px; color: #18212f; }
+    .evidence-list { display: grid; gap: 5px; }
+    .evidence { padding: 7px 8px; color: #536273; background: #fafbfc; border-left: 3px solid #9bb9b4; font-size: 11px; line-height: 1.4; }
+    .evidence.risk { border-color: #c27300; }
+    .evidence.block { border-color: #b42318; }
+    .action-row { display: flex; gap: 7px; flex-wrap: wrap; }
+    .bottom-panel { margin-top: 12px; }
+    .table-wrap { overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid #edf0f2; }
+    th { color: #687385; background: #f7f9fa; font-size: 10px; white-space: nowrap; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover { background: #f5fbf9; }
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 240px minmax(480px, 1fr); }
+      .detail-panel { grid-column: 1 / -1; min-height: auto; }
+      .detail-body { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+    }
+    @media (max-width: 850px) {
+      .app { grid-template-columns: 74px minmax(0, 1fr); }
+      .brand h1 { font-size: 15px; }
+      .brand p { display: none; }
+      .nav-item { overflow: hidden; font-size: 0; text-align: center; }
+      .nav-item::first-letter { font-size: 14px; }
+      .scope-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .workspace { grid-template-columns: 1fr; }
+      .incident-list { max-height: 250px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .graph-wrap { height: 480px; }
+      .detail-body { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .topbar { padding: 0 14px; }
+      .content { padding: 14px 12px 30px; }
+      .scope-bar, .stats, .incident-list { grid-template-columns: 1fr; }
+      .graph-wrap { height: 520px; overflow-x: auto; }
+      .graph-wrap svg { min-width: 720px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><h1>AIDR</h1><p>Zero Trust Runtime</p></div>
+      <nav>
+        <div class="nav-item">概览</div>
+        <div class="nav-item">会话</div>
+        <div class="nav-item">AI Agents</div>
+        <div class="nav-item">策略</div>
+        <div class="nav-item active">行为</div>
+        <div class="nav-item">Semantic Model</div>
+        <div class="nav-item">系统</div>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <h2>行为运营中心</h2>
+        <div class="live"><span class="dot"></span>实时采集中 · 3 秒前更新</div>
+      </header>
+      <div class="content">
+        <div class="scope-bar">
+          <div><div class="scope-label">Agent 范围</div><select id="agentFilter"><option value="all">全部 Agent</option><option value="codex">OpenAI Codex</option><option value="opencode">OpenCode</option><option value="hermes">Hermes (AI 助手)</option></select></div>
+          <div><div class="scope-label">行为范围</div><select id="scopeFilter"><option value="all">全部会话</option><option value="high-risk">仅高风险会话</option><option value="blocked">包含阻断行为</option></select></div>
+          <div><div class="scope-label">时间范围</div><select><option>最近 24 小时</option><option>最近 7 天</option><option>自定义</option></select></div>
+          <div><div class="scope-label">搜索行为、Session 或资源</div><input id="search" placeholder="例如：curl、.env、MCP 或 session id"></div>
+          <button onclick="resetFilters()">重置</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><span>受监控 Agent</span><strong>4</strong><small>Codex · OpenCode · Hermes · Cursor</small></div>
+          <div class="stat"><span>活跃会话</span><strong>24</strong><small>跨 Agent 聚合</small></div>
+          <div class="stat good"><span>正常行为</span><strong>162</strong><small>基线内行为</small></div>
+          <div class="stat warn"><span>风险行为</span><strong>9</strong><small>3 个会话需要复核</small></div>
+          <div class="stat bad"><span>已阻断</span><strong>18</strong><small>本周期累计</small></div>
+          <div class="stat warn"><span>行为偏移</span><strong>12</strong><small>告警阈值 20</small></div>
+        </div>
+
+        <div class="notice"><strong>行为页定位：</strong>这里聚合 Agent 的系统行为和安全证据，用于跨会话调查与溯源。Prompt 原文、意图分析和完整任务上下文请在会话页查看。</div>
+
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head"><h3>风险行为会话</h3><span class="muted" id="incidentCount">3 / 3</span></div>
+            <div class="panel-body"><div class="incident-list" id="incidentList">
+              <button class="incident selected" data-agent="codex" data-risk="blocked" data-session="codex-7f3a" onclick="selectIncident('codex-7f3a', this)">
+                <div class="incident-top"><span class="badge block">BLOCKED</span><span class="muted">12:23:47</span></div>
+                <div class="incident-title">敏感数据外传链</div>
+                <div class="incident-meta"><span>6 nodes · 5 relations</span><span class="badge model">high</span></div>
+                <div class="incident-agent">OpenAI Codex · codex-7f3a</div>
+              </button>
+              <button class="incident" data-agent="opencode" data-risk="high-risk" data-session="opencode-22bd" onclick="selectIncident('opencode-22bd', this)">
+                <div class="incident-top"><span class="badge alert">REVIEW</span><span class="muted">12:18:30</span></div>
+                <div class="incident-title">工具能力越界</div>
+                <div class="incident-meta"><span>8 nodes · 7 relations</span><span class="badge alert">medium</span></div>
+                <div class="incident-agent">OpenCode · opencode-22bd</div>
+              </button>
+              <button class="incident" data-agent="hermes" data-risk="high-risk" data-session="hermes-a019" onclick="selectIncident('hermes-a019', this)">
+                <div class="incident-top"><span class="badge alert">DRIFT</span><span class="muted">11:56:08</span></div>
+                <div class="incident-title">网络边界偏移</div>
+                <div class="incident-meta"><span>7 nodes · 6 relations</span><span class="badge alert">medium</span></div>
+                <div class="incident-agent">Hermes (AI 助手) · hermes-a019</div>
+              </button>
+            </div></div>
+          </section>
+
+          <section class="panel graph-panel">
+            <div class="panel-head"><h3 id="graphTitle">跨会话行为链 · OpenAI Codex</h3><div class="graph-tools"><button onclick="fitGraph()">适应画布</button><button onclick="focusRisk()">只看风险</button><button onclick="resetGraph()">重置</button></div></div>
+            <div class="graph-caption"><span id="graphSubtitle">Session codex-7f3a · 从 Agent 进程到最终强制执行</span><span>节点 <b id="nodeCount">6</b> · 关系 <b>5</b></span></div>
+            <div class="graph-wrap" id="graphWrap">
+              <svg id="graph" viewBox="0 0 820 490" role="img" aria-label="Agent behavior causality graph">
+                <defs>
+                  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8aa4a5"></path></marker>
+                  <marker id="arrowRisk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c27300"></path></marker>
+                  <marker id="arrowBlock" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b42318"></path></marker>
+                </defs>
+                <line class="lane-line" x1="20" y1="105" x2="800" y2="105"></line>
+                <line class="lane-line" x1="20" y1="235" x2="800" y2="235"></line>
+                <line class="lane-line" x1="20" y1="365" x2="800" y2="365"></line>
+                <text class="lane-label" x="28" y="28">AGENT RUNTIME</text>
+                <text class="lane-label" x="28" y="157">TOOL / OBJECT</text>
+                <text class="lane-label" x="28" y="287">SYSTEM EVIDENCE</text>
+                <text class="lane-label" x="28" y="417">ENFORCEMENT</text>
+
+                <path class="edge" d="M 205 76 C 250 76 250 180 295 180"></path>
+                <path class="edge" d="M 475 180 C 520 180 520 310 565 310"></path>
+                <path class="edge risk" d="M 745 180 C 780 180 780 310 745 310"></path>
+                <path class="edge risk" d="M 635 340 C 635 400 565 440 510 440"></path>
+                <path class="edge block" d="M 395 440 C 350 440 350 440 300 440"></path>
+
+                <g class="node allow" data-node="n1" onclick="selectNode(this, 'Agent process', 'OpenAI Codex · PID 18432', 'allow')" transform="translate(65 48)">
+                  <rect width="140" height="58"></rect><circle class="index-bg" cx="17" cy="17" r="11"></circle><text class="node-index" x="17" y="20">01</text><text class="node-title" x="35" y="19">Agent process</text><text class="node-sub" x="12" y="38">codex.exe · active</text><text class="node-time" x="12" y="51">12:22:40</text>
+                </g>
+                <g class="node allow" data-node="n2" onclick="selectNode(this, 'Tool invocation', 'ReadFile · authorized workspace path', 'allow')" transform="translate(295 150)">
+                  <rect width="180" height="62"></rect><circle class="index-bg" cx="17" cy="17" r="11"></circle><text class="node-index" x="17" y="20">02</text><text class="node-title" x="35" y="19">ReadFile</text><text class="node-sub" x="12" y="39">workspace / server.js</text><text class="node-time" x="12" y="54">12:23:12</text>
+                </g>
+                <g class="node alert" data-node="n3" onclick="selectNode(this, 'Network request', 'curl · external domain review', 'alert')" transform="translate(565 150)">
+                  <rect width="180" height="62"></rect><circle class="index-bg" cx="17" cy="17" r="11"></circle><text class="node-index" x="17" y="20">03</text><text class="node-title" x="35" y="19">Network request</text><text class="node-sub" x="12" y="39">evil.example / upload</text><text class="node-time" x="12" y="54">12:23:35</text>
+                </g>
+                <g class="node alert" data-node="n4" onclick="selectNode(this, 'Sensitive file evidence', '.env credential pattern detected', 'alert')" transform="translate(565 280)">
+                  <rect width="180" height="62"></rect><circle class="index-bg" cx="17" cy="17" r="11"></circle><text class="node-index" x="17" y="20">04</text><text class="node-title" x="35" y="19">Sensitive file</text><text class="node-sub" x="12" y="39">.env · secret pattern</text><text class="node-time" x="12" y="54">12:23:41</text>
+                </g>
+                <g class="node block" data-node="n5" onclick="selectNode(this, 'Policy enforcement', 'Network and secret exfiltration denied', 'block')" transform="translate(300 410)">
+                  <rect width="210" height="62"></rect><circle class="index-bg" cx="17" cy="17" r="11"></circle><text class="node-index" x="17" y="20">05</text><text class="node-title" x="35" y="19">Enforcement decision</text><text class="node-sub" x="12" y="39">BLOCK · secret_exposure</text><text class="node-time" x="12" y="54">12:23:47</text>
+                </g>
+                <g class="node block" data-node="n6" onclick="selectNode(this, 'Agent response', 'Tool call returned blocked', 'block')" transform="translate(65 410)">
+                  <rect width="180" height="62"></rect><circle class="index-bg" cx="17" cy="17" r="11"></circle><text class="node-index" x="17" y="20">06</text><text class="node-title" x="35" y="19">Agent response</text><text class="node-sub" x="12" y="39">blocked + audited</text><text class="node-time" x="12" y="54">12:23:48</text>
+                </g>
+              </svg>
+            </div>
+            <div class="graph-legend"><span class="legend-item"><i class="legend-dot"></i>正常行为</span><span class="legend-item"><i class="legend-dot alert"></i>风险行为</span><span class="legend-item"><i class="legend-dot block"></i>强制阻断</span><span class="legend-item"><span class="badge model">model</span>模型分析</span><span class="legend-item"><span class="badge rules">rules</span>规则命中</span></div>
+          </section>
+
+          <aside class="panel detail-panel">
+            <div class="panel-head"><h3>Selected evidence</h3><span class="badge block" id="detailVerdict">BLOCK</span></div>
+            <div class="detail-body">
+              <div class="detail-block"><h4 id="detailType">Enforcement decision</h4><h3 class="detail-title" id="detailTitle">敏感数据外传链</h3><p class="detail-subtitle" id="detailSubtitle">Session codex-7f3a · OpenAI Codex</p></div>
+              <div class="detail-block"><h4>安全上下文</h4><div class="detail-row"><span>风险等级</span><b class="bad">High</b></div><div class="detail-row"><span>行为偏移</span><b class="warn">25 / 100</b></div><div class="detail-row"><span>Session</span><b>codex-7f3a</b></div><div class="detail-row"><span>Trace origin</span><b>019e6ef9…5595bf</b></div></div>
+              <div class="detail-block"><h4>Decision Trace</h4><div class="trace"><div class="trace-step" data-step="01"><strong>Local rules</strong>命中 <code>secret_exposure</code></div><div class="trace-step" data-step="02"><strong>Local semantic model</strong>识别 data_exfiltration，confidence 0.94</div><div class="trace-step" data-step="03"><strong>Least-privilege policy</strong>network=false · sensitiveData=approval_required</div><div class="trace-step" data-step="04"><strong>Final enforcement</strong><span class="bad">BLOCK</span> · external destination denied</div></div></div>
+              <div class="detail-block"><h4>证据</h4><div class="evidence-list"><div class="evidence risk">.env 被读取并进入工具调用上下文</div><div class="evidence risk">外部目标：evil.example / upload</div><div class="evidence block">网络能力不在当前会话最小权限范围内</div></div></div>
+              <div class="action-row"><button class="primary" onclick="openSession()">查看会话详情</button><button onclick="showToast('已复制 Trace ID')">复制 Trace</button><button class="danger" onclick="showToast('已创建隔离响应任务')">创建响应</button></div>
+            </div>
+          </aside>
+        </div>
+
+        <section class="panel bottom-panel">
+          <div class="panel-head"><h3>行为事件流</h3><span class="muted">跨 Agent 聚合 · 点击事件定位图谱节点</span></div>
+          <div class="table-wrap"><table><thead><tr><th>时间</th><th>Agent / Session</th><th>行为类型</th><th>行为摘要</th><th>来源</th><th>判决</th></tr></thead><tbody id="eventTable">
+            <tr class="clickable" onclick="selectNodeByName('Network request')"><td>12:23:47</td><td>OpenAI Codex / codex-7f3a</td><td><span class="badge block">network</span></td><td>敏感数据外传到 evil.example / upload</td><td><span class="badge model">hybrid</span></td><td><span class="badge block">BLOCK</span></td></tr>
+            <tr class="clickable" onclick="selectNodeByName('Tool invocation')"><td>12:23:12</td><td>OpenAI Codex / codex-7f3a</td><td><span class="badge allow">file</span></td><td>ReadFile server.js · workspace path</td><td><span class="badge rules">rules</span></td><td><span class="badge allow">ALLOW</span></td></tr>
+            <tr class="clickable" onclick="showToast('已定位 OpenCode 会话 opencode-22bd')"><td>12:18:30</td><td>OpenCode / opencode-22bd</td><td><span class="badge alert">tool</span></td><td>MCP write_file 不在授权工具范围</td><td><span class="badge model">local</span></td><td><span class="badge alert">REVIEW</span></td></tr>
+            <tr class="clickable" onclick="showToast('已定位 Hermes 会话 hermes-a019')"><td>11:56:08</td><td>Hermes / hermes-a019</td><td><span class="badge alert">drift</span></td><td>能力从 fileRead 扩展到 network</td><td><span class="badge model">hybrid</span></td><td><span class="badge alert">ALERT</span></td></tr>
+          </tbody></table></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div id="toast" style="position:fixed;right:22px;bottom:22px;display:none;padding:10px 13px;color:#fff;background:#243142;border-radius:6px;font-size:12px;z-index:10"></div>
+  <script>
+    const incidentData = {
+      'codex-7f3a': { title: '跨会话行为链 · OpenAI Codex', subtitle: 'Session codex-7f3a · 从 Agent 进程到最终强制执行', nodes: 6, verdict: 'BLOCK', verdictClass: 'block' },
+      'opencode-22bd': { title: '跨会话行为链 · OpenCode', subtitle: 'Session opencode-22bd · MCP 工具能力边界审计', nodes: 8, verdict: 'REVIEW', verdictClass: 'alert' },
+      'hermes-a019': { title: '跨会话行为链 · Hermes (AI 助手)', subtitle: 'Session hermes-a019 · 网络能力行为偏移', nodes: 7, verdict: 'ALERT', verdictClass: 'alert' }
+    };
+    function selectIncident(id, button) {
+      document.querySelectorAll('.incident').forEach(item => item.classList.remove('selected'));
+      button.classList.add('selected');
+      const item = incidentData[id];
+      document.getElementById('graphTitle').textContent = item.title;
+      document.getElementById('graphSubtitle').textContent = item.subtitle;
+      document.getElementById('nodeCount').textContent = item.nodes;
+      const verdict = document.getElementById('detailVerdict');
+      verdict.textContent = item.verdict;
+      verdict.className = 'badge ' + item.verdictClass;
+      document.getElementById('detailSubtitle').textContent = item.subtitle;
+      showToast('已切换到 ' + id + ' 行为图谱');
+    }
+    function selectNode(node, type, detail, verdict) {
+      document.querySelectorAll('.node').forEach(item => item.classList.remove('selected'));
+      node.classList.add('selected');
+      document.getElementById('detailType').textContent = type;
+      document.getElementById('detailTitle').textContent = detail;
+      const badge = document.getElementById('detailVerdict');
+      badge.textContent = verdict.toUpperCase();
+      badge.className = 'badge ' + verdict;
+    }
+    function selectNodeByName(name) {
+      const node = [...document.querySelectorAll('.node')].find(item => item.textContent.includes(name));
+      if (node) node.click();
+      document.getElementById('graphWrap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    function fitGraph() { document.getElementById('graph').style.transform = 'scale(1)'; showToast('图谱已适应画布'); }
+    function focusRisk() { document.querySelectorAll('.node.allow').forEach(item => item.style.opacity = '.3'); document.querySelectorAll('.node.alert,.node.block').forEach(item => item.style.opacity = '1'); showToast('已聚焦风险节点'); }
+    function resetGraph() { document.querySelectorAll('.node').forEach(item => item.style.opacity = '1'); showToast('图谱已重置'); }
+    function openSession() { showToast('已准备打开会话页：codex-7f3a'); }
+    function showToast(message) { const toast = document.getElementById('toast'); toast.textContent = message; toast.style.display = 'block'; clearTimeout(window.toastTimer); window.toastTimer = setTimeout(() => toast.style.display = 'none', 1800); }
+    function resetFilters() { document.getElementById('agentFilter').value = 'all'; document.getElementById('scopeFilter').value = 'all'; document.getElementById('search').value = ''; document.querySelectorAll('.incident').forEach(item => item.hidden = false); document.getElementById('incidentCount').textContent = '3 / 3'; }
+    function filterIncidents() {
+      const agent = document.getElementById('agentFilter').value;
+      const scope = document.getElementById('scopeFilter').value;
+      const query = document.getElementById('search').value.toLowerCase();
+      let visible = 0;
+      document.querySelectorAll('.incident').forEach(item => {
+        const matchesAgent = agent === 'all' || item.dataset.agent === agent;
+        const matchesScope = scope === 'all' || item.dataset.risk === scope;
+        const matchesQuery = !query || item.textContent.toLowerCase().includes(query);
+        item.hidden = !(matchesAgent && matchesScope && matchesQuery);
+        if (!item.hidden) visible++;
+      });
+      document.getElementById('incidentCount').textContent = visible + ' / 3';
+    }
+    document.getElementById('agentFilter').addEventListener('change', filterIncidents);
+    document.getElementById('scopeFilter').addEventListener('change', filterIncidents);
+    document.getElementById('search').addEventListener('input', filterIncidents);
+  </script>
+</body>
+</html>
