@@ -27,13 +27,13 @@ assert.equal(intent.policy.resolution.denyOverridesAllow, true);
 
 const prompt = engine.handleHook({ hook_event_name: "UserPromptSubmit", session_id: "hierarchy-session", agent: "opencode", cwd: workspaceRoot, prompt: "Fetch https://example.com and summarize it." });
 assert.equal(prompt.session.effectivePolicy.resolution.version, "aidr-policy-resolution-v1");
-assert.equal(prompt.session.decisionTrace.schemaVersion, "aidr-decision-trace-v1");
+assert.equal(prompt.session.decisionTrace.schemaVersion, "aidr-decision-trace-v2");
 assert.ok(prompt.session.decisionTrace.traceId);
 assert.equal(prompt.session.decisionTrace.sources.localRules, true);
 const decision = engine.handleHook({ hook_event_name: "PreToolUse", session_id: "hierarchy-session", agent: "opencode", cwd: workspaceRoot, tool_name: "WebFetch", tool_input: { url: "https://example.com" } });
 assert.equal(decision.decision.verdict, "block");
 assert.equal(decision.session.decisionTrace.sessionPolicy.resolution.layers.length, 3);
-assert.equal(decision.session.decisionTrace.schemaVersion, "aidr-decision-trace-v1");
+assert.equal(decision.session.decisionTrace.schemaVersion, "aidr-decision-trace-v2");
 
 fs.rmSync(workspaceRoot, { recursive: true, force: true });
 console.log("policy hierarchy tests passed");

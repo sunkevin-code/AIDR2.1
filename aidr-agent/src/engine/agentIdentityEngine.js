@@ -4,11 +4,11 @@ const path = require("path");
 // Local catalog and multi-signal matcher. The endpoint never needs API keys to identify an agent.
 const AGENT_CATALOG = [
   { id: "openai-codex", label: "OpenAI Codex", vendor: "OpenAI", category: "coding-agent", processNames: ["codex.exe", "codex"], commandTokens: ["codex", "codex-app-server"], configPaths: ["%USERPROFILE%\\.codex", "%APPDATA%\\Codex"] },
-  { id: "opencode", label: "OpenCode", vendor: "OpenCode", category: "ai-desktop", processNames: ["opencode.exe", "opencode"], commandTokens: ["opencode", "@opencode-aidesktop", "ai.opencode.desktop"], configPaths: ["%USERPROFILE%\\.config\\opencode", "%APPDATA%\\opencode", "%LOCALAPPDATA%\\opencode"] },
+  { id: "opencode", label: "OpenCode", vendor: "OpenCode", category: "ai-desktop", processNames: ["opencode.exe", "opencode"], commandTokens: ["opencode", "@opencode-aidesktop", "ai.opencode.desktop"], configPaths: ["%USERPROFILE%\\.config\\opencode", "%APPDATA%\\opencode", "%LOCALAPPDATA%\\opencode"] }, { id: "hermes", label: "Hermes (AI 助手)", vendor: "Hermes", category: "ai-agent", processNames: ["hermes.exe", "hermes"], commandTokens: ["hermes", "hermes-ai", "hermes-agent"], configPaths: ["%USERPROFILE%\\.hermes", "%APPDATA%\\Hermes", "%LOCALAPPDATA%\\Hermes"] },
   { id: "claude-code", label: "Claude Code", vendor: "Anthropic", category: "coding-agent", processNames: ["claude.exe", "claude"], commandTokens: ["claude", "claude-code"], configPaths: ["%USERPROFILE%\\.claude"] },
   { id: "cursor", label: "Cursor", vendor: "Anysphere", category: "ai-ide", processNames: ["cursor.exe", "cursor"], commandTokens: ["cursor"], configPaths: ["%APPDATA%\\Cursor", "%USERPROFILE%\\.cursor"] },
   { id: "windsurf", label: "Windsurf", vendor: "Codeium", category: "ai-ide", processNames: ["windsurf.exe", "windsurf"], commandTokens: ["windsurf", "windsurf.exe"], configPaths: ["%APPDATA%\\Windsurf", "%USERPROFILE%\\.windsurf"] },
-  { id: "cline", label: "Cline", vendor: "Cline", category: "vscode-agent", processNames: ["code.exe", "code-insiders.exe"], commandTokens: ["cline", "saoudrizwan.claude-dev"], extensionMarkers: ["saoudrizwan.claude-dev"], configPaths: ["%USERPROFILE%\\.vscode\\extensions\saoudrizwan.claude-dev*"] },
+  { id: "cline", label: "Cline", vendor: "Cline", category: "vscode-agent", processNames: ["code.exe", "code-insiders.exe"], commandTokens: ["cline", "saoudrizwan.claude-dev"], extensionMarkers: ["saoudrizwan.claude-dev"], configPaths: ["%USERPROFILE%\\.vscode\\extensions\\saoudrizwan.claude-dev*"] },
   { id: "roo-code", label: "Roo Code", vendor: "Roo Code", category: "vscode-agent", processNames: ["code.exe", "code-insiders.exe"], commandTokens: ["roo-cline", "rooveterinaryinc.roo-cline"], extensionMarkers: ["rooveterinaryinc.roo-cline"], configPaths: ["%USERPROFILE%\\.vscode\\extensions\\rooveterinaryinc.roo-cline*"] },
   { id: "github-copilot", label: "GitHub Copilot", vendor: "GitHub", category: "vscode-agent", processNames: ["code.exe", "code-insiders.exe"], commandTokens: ["github.copilot", "copilot"], extensionMarkers: ["github.copilot"], configPaths: ["%USERPROFILE%\\.vscode\\extensions\\github.copilot*"] },
   { id: "continue", label: "Continue", vendor: "Continue", category: "vscode-agent", processNames: ["code.exe", "code-insiders.exe"], commandTokens: ["continue.continue", "continue"], extensionMarkers: ["continue.continue"], configPaths: ["%USERPROFILE%\\.vscode\\extensions\\continue.continue*", "%USERPROFILE%\\.continue"] },
@@ -56,11 +56,46 @@ function redactCommandLine(value) {
     .replace(/(bearer\s+)[^\s"']+/ig, "$1[REDACTED]");
 }
 
+function normalizeProfile(profile = {}) {
+  return {
+    id: String(profile.id || "").trim(),
+    label: String(profile.label || profile.id || "Unknown Agent"),
+    vendor: String(profile.vendor || "Unknown"),
+    category: String(profile.category || "ai-agent"),
+    processNames: Array.isArray(profile.processNames) ? profile.processNames.map(String) : [],
+    commandTokens: Array.isArray(profile.commandTokens) ? profile.commandTokens.map(String) : [],
+    extensionMarkers: Array.isArray(profile.extensionMarkers) ? profile.extensionMarkers.map(String) : [],
+    configPaths: Array.isArray(profile.configPaths) ? profile.configPaths.map(String) : []
+  };
+}
+
 class AgentIdentityEngine {
   constructor(policy = {}, catalog = AGENT_CATALOG) {
     this.policy = policy;
-    this.catalog = catalog.map(profile => ({ ...profile }));
+    const profiles = new Map(catalog.map(profile => [String(profile.id), normalizeProfile(profile)]));
+    for (const profile of (Array.isArray(policy.agentCatalog) ? policy.agentCatalog : [])) {
+      const normalized = normalizeProfile(profile);
+      if (normalized.id) profiles.set(normalized.id, normalized);
+    }
+    this.catalog = [...profiles.values()];
     this.states = new Map();
+  }
+
+  restore(snapshot = []) {
+    const known = new Set(this.catalog.map(profile => profile.id));
+    for (const item of Array.isArray(snapshot) ? snapshot : []) {
+      if (!item?.id || !known.has(String(item.id))) continue;
+      this.states.set(String(item.id), {
+        ...item,
+        id: String(item.id),
+        status: item.status === "active" ? "offline" : (item.status || "offline"),
+        processes: Array.isArray(item.processes) ? item.processes : [],
+        pids: Array.isArray(item.pids) ? item.pids : [],
+        signals: Array.isArray(item.signals) ? item.signals : [],
+        stale: true,
+        wasActive: false
+      });
+    }
   }
 
   matchProcess(processInfo) {
@@ -117,7 +152,9 @@ class AgentIdentityEngine {
         processes: items.map(item => item.process),
         configPaths,
         firstSeenAt: previous.firstSeenAt || (active ? now : null),
-        lastSeenAt: active ? now : previous.lastSeenAt
+        lastSeenAt: active ? now : previous.lastSeenAt,
+        lastScanAt: now,
+        stale: false
       };
       if (active && !previous.wasActive) changes.push(next);
       this.states.set(profile.id, { ...next, wasActive: active });
@@ -143,6 +180,8 @@ class AgentIdentityEngine {
       activeCount: agents.filter(agent => agent.status === "active").length,
       configuredCount: agents.filter(agent => agent.status === "configured").length,
       detectedCount: agents.filter(agent => agent.status === "active" || agent.status === "offline").length,
+      staleCount: agents.filter(agent => agent.stale === true).length,
+      lastScanAt: agents.map(agent => agent.lastScanAt).filter(Boolean).sort().pop() || null,
       timestamp: new Date().toISOString()
     };
   }

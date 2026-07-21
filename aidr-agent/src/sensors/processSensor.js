@@ -2,9 +2,10 @@ const { exec, execSync } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { AgentIdentityEngine } = require("../engine/agentIdentityEngine");
+const { readJsonWithBackup, writeJsonAtomic } = require("../utils/atomicJson");
 
 class ProcessSensor {
-  constructor(policy, addEvent, enforcer) {
+  constructor(policy, addEvent, enforcer, options = {}) {
     this.policy = policy;
     this.addEvent = addEvent;
     this.enforcer = enforcer;
@@ -12,14 +13,39 @@ class ProcessSensor {
     this.interval = null;
     this.polling = false;
     this.seenProcesses = new Set();
+    this.discoveryStatePath = options.statePath || null;
+    this.discoveryPersistence = { source: "none", recovered: false, lastSaveAt: null, lastSaveError: null, saveFailures: 0, lastScanAt: null, lastScanError: null };
     this.stats = { totalDetected: 0, blocked: 0, agentDetections: 0 };
     this.agentIdentity = new AgentIdentityEngine(policy);
+    this._loadDiscoveryState();
+  }
+
+  _loadDiscoveryState() {
+    if (!this.discoveryStatePath) return;
+    const loaded = readJsonWithBackup(this.discoveryStatePath, null);
+    this.discoveryPersistence.source = loaded.source;
+    this.discoveryPersistence.recovered = loaded.recovered;
+    if (Array.isArray(loaded.value?.agents)) this.agentIdentity.restore(loaded.value.agents);
+  }
+
+  _saveDiscoveryState() {
+    if (!this.discoveryStatePath) return;
+    try {
+      writeJsonAtomic(this.discoveryStatePath, { version: 1, savedAt: new Date().toISOString(), agents: this.agentIdentity.getSnapshot() });
+      this.discoveryPersistence.source = "primary";
+      this.discoveryPersistence.lastSaveAt = new Date().toISOString();
+      this.discoveryPersistence.lastSaveError = null;
+    } catch (error) {
+      this.discoveryPersistence.saveFailures++;
+      this.discoveryPersistence.lastSaveError = error.message;
+    }
   }
 
   async start() {
     if (this.policy.sensors?.process?.enabled === false) return;
     this.active = true;
     this.addEvent("system", "info", "allow", "Process sensor started (WMI polling mode)");
+    this.poll().catch(() => {});
     this.interval = setInterval(() => { this.poll().catch(() => {}); }, 3000);
   }
 
@@ -46,6 +72,9 @@ class ProcessSensor {
       if (!Array.isArray(processes)) processes = [processes];
 
       const discovery = this.agentIdentity.update(processes);
+      this.discoveryPersistence.lastScanAt = discovery.timestamp;
+      this.discoveryPersistence.lastScanError = null;
+      this._saveDiscoveryState();
       for (const agent of discovery.changes) {
         if (agent.status === "active") {
           this.stats.agentDetections++;
@@ -81,12 +110,15 @@ class ProcessSensor {
           this.addEvent("process", "info", "allow", "Agent process: " + name, { pid, name, commandLine: cmdLine, agentId: agentMatch?.profile.id || null, agentLabel: agentMatch?.profile.label || null, agentConfidence: agentMatch?.score || null, agentSignals: agentMatch?.signals || [] });
         }
       }
+    } catch (error) {
+      this.discoveryPersistence.lastScanError = error.message;
+      throw error;
     } finally {
       this.polling = false;
     }
   }
 
-  getStats() { return { ...this.stats, polling: this.polling }; }
+  getStats() { return { ...this.stats, polling: this.polling, discovery: { ...this.discoveryPersistence } }; }
   getAgentIdentities() { return this.agentIdentity.getSnapshot(); }
   getAgentCatalog() { return this.agentIdentity.getCatalog(); }
   getAgentDiscoveryStatus() { return this.agentIdentity.getStatus(); }

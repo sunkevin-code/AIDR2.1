@@ -7,6 +7,7 @@ const { BehaviorDriftEngine } = require("./behaviorDriftEngine");
 const { ThreatDetectionEngine } = require("./threatDetectionEngine");
 const { buildBehaviorTraceGraph } = require("./behaviorTraceGraph");
 const { buildSessionContextGraph } = require("./sessionContextGraph");
+const { readJsonWithBackup, writeJsonAtomic } = require("../utils/atomicJson");
 
 const WRITE_INTENT = /(修改|编辑|创建|生成|实现|修复|优化|重构|构建|打包|安装|部署|删除|写入|update|edit|modify|change|create|generate|implement|fix|optimi[sz]e|refactor|build|package|install|deploy|delete|write)/i;
 const SHELL_INTENT = /(运行|启动|测试|构建|编译|安装|执行|命令|run|start|test|build|compile|install|execute|command|shell|powershell|npm|git|dotnet|cargo)/i;
@@ -31,6 +32,21 @@ class SessionPolicyEngine {
     this.threatDetector = new ThreatDetectionEngine(policy.threatDetection || {});
     this.approvals = new Map();
     this.approvalStatePath = statePath ? require("path").join(require("path").dirname(statePath), "approvals.json") : null;
+    this.persistence = {
+      statePath: statePath || null,
+      approvalStatePath: this.approvalStatePath,
+      stateSource: "none",
+      approvalStateSource: "none",
+      recoveredState: false,
+      recoveredApprovals: false,
+      lastSaveAt: null,
+      lastApprovalSaveAt: null,
+      lastSaveError: null,
+      lastApprovalSaveError: null,
+      saveFailures: 0,
+      approvalSaveFailures: 0
+    };
+    this.traceSequence = 0;
     this._load();
     this._loadApprovals();
   }
@@ -42,8 +58,12 @@ class SessionPolicyEngine {
 
   _loadApprovals() {
     try {
-      if (!this.approvalStatePath || !fs.existsSync(this.approvalStatePath)) return;
-      const state = JSON.parse(fs.readFileSync(this.approvalStatePath, "utf8"));
+      if (!this.approvalStatePath) return;
+      const loaded = readJsonWithBackup(this.approvalStatePath, null);
+      if (!loaded.value) return;
+      this.persistence.approvalStateSource = loaded.source;
+      this.persistence.recoveredApprovals = loaded.recovered;
+      const state = loaded.value;
       const approvals = Array.isArray(state) ? state : state.approvals;
       for (const item of approvals || []) {
         if (!item || !item.id || !item.sessionId || !item.actionKey) continue;
@@ -57,20 +77,27 @@ class SessionPolicyEngine {
       }
       this.stats = { ...this.stats, ...(state.stats || {}) };
       this._expireApprovals();
-    } catch (_) {}
+    } catch (error) {
+      this.persistence.lastApprovalSaveError = error.message;
+    }
   }
 
   _saveApprovals() {
     try {
       if (!this.approvalStatePath) return;
-      fs.mkdirSync(path.dirname(this.approvalStatePath), { recursive: true });
       const approvals = [...this.approvals.values()]
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
         .slice(0, 500);
-      fs.writeFileSync(this.approvalStatePath, JSON.stringify({ version: 1, approvals, stats: {
+      writeJsonAtomic(this.approvalStatePath, { version: 1, approvals, stats: {
         approvalCreated: this.stats.approvalCreated || 0, approvalResolved: this.stats.approvalResolved || 0, approvalExpired: this.stats.approvalExpired || 0
-      } }, null, 2), "utf8");
-    } catch (_) {}
+      } });
+      this.persistence.approvalStateSource = "primary";
+      this.persistence.lastApprovalSaveAt = new Date().toISOString();
+      this.persistence.lastApprovalSaveError = null;
+    } catch (error) {
+      this.persistence.approvalSaveFailures++;
+      this.persistence.lastApprovalSaveError = error.message;
+    }
   }
 
   _expireApprovals() {
@@ -318,7 +345,7 @@ class SessionPolicyEngine {
       else if (localDecision?.verdict === "block") decision = localDecision;
       else if (semanticDecision) decision = semanticDecision;
       else if (localDecision) decision = localDecision;
-      session.decisionTrace = this._buildDecisionTrace({ hookName, localIntent, localDecision, semantic, intent, decision });
+      session.decisionTrace = this._buildDecisionTrace({ session, input, hookName, localIntent, localDecision, semantic, intent, decision });
       session.prompt = prompt;
       session.rawPrompt = rawPrompt;
       session.promptPreview = this._summarize(prompt, 220);
@@ -373,7 +400,7 @@ class SessionPolicyEngine {
       const actionDetail = this._safeToolDetail(input);
       if (decision.drift) actionDetail.behaviorDrift = decision.drift;
       if (decision.semantic) actionDetail.semanticAnalysis = decision.semantic;
-      session.decisionTrace = this._buildDecisionTrace({ hookName, localIntent: null, localDecision: null, semantic: options.semanticResult, intent: { policy: session.effectivePolicy || {}, capabilities: session.effectivePolicy?.capabilities || {}, riskLevel: session.intent?.riskLevel || "unknown", riskScore: session.intent?.riskScore || null }, decision });
+      session.decisionTrace = this._buildDecisionTrace({ session, input, hookName, localIntent: null, localDecision: null, semantic: options.semanticResult, intent: { policy: session.effectivePolicy || {}, capabilities: session.effectivePolicy?.capabilities || {}, riskLevel: session.intent?.riskLevel || "unknown", riskScore: session.intent?.riskScore || null }, decision });
       actionDetail.decisionTrace = session.decisionTrace;
       this._record(session, hookName, input.tool_name || "unknown", decision.verdict,
         `${input.tool_name || "tool"}: ${decision.reason}`, actionDetail);
@@ -529,13 +556,26 @@ class SessionPolicyEngine {
     };
   }
 
-  _buildDecisionTrace({ hookName, localIntent, localDecision, semantic, intent, decision }) {
+  _buildDecisionTrace({ session, input, hookName, localIntent, localDecision, semantic, intent, decision }) {
     const semanticUsed = this._isSemanticResult(semantic);
+    const sequence = Number(session?.traceSequence || 0) + 1;
+    if (session) session.traceSequence = sequence;
+    const parentTraceId = session?.decisionTrace?.traceId || null;
+    const path = [];
+    path.push({ stage: "local_rules", outcome: localDecision?.verdict || "allow", rule: localDecision?.rule || "rules.no_match", reason: localDecision?.reason || "No local blocking rule matched" });
+    path.push({ stage: "semantic_model", outcome: semanticUsed ? (semantic.verdict || semantic.riskLevel || "analyzed") : "not_used", rule: semanticUsed ? (semantic.reason || null) : null, reason: semanticUsed ? "Semantic result included in final policy decision" : "Rules-only fallback or semantic analysis unavailable" });
+    path.push({ stage: "least_privilege_policy", outcome: intent?.policy?.mode || "monitor", rule: "session_policy.resolve", reason: "Capabilities constrained by global, workspace, Agent and session boundaries" });
+    path.push({ stage: "final_enforcement", outcome: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" });
     return {
-      schemaVersion: "aidr-decision-trace-v1",
+      schemaVersion: "aidr-decision-trace-v2",
       traceId: crypto.randomUUID(),
+      parentTraceId,
+      sequence,
+      sessionId: session?.id || input?.session_id || input?.conversation_id || null,
+      turnId: input?.turn_id || null,
       generatedAt: new Date().toISOString(),
       hookEvent: hookName,
+      operation: input?.tool_name ? "tool" : hookName === "UserPromptSubmit" ? "prompt" : "session",
       sources: {
         localRules: Boolean(localIntent || localDecision),
         semanticModel: semanticUsed,
@@ -545,6 +585,7 @@ class SessionPolicyEngine {
       localRules: { source: "rules_engine", analyzer: localIntent?.analyzer || "aidr-local-rules", verdict: localDecision?.verdict || "allow", rule: localDecision?.rule || null, riskLevel: localIntent?.riskLevel || intent?.riskLevel || "unknown", riskScore: localIntent?.riskScore ?? intent?.riskScore ?? null },
       semanticModel: semanticUsed ? { source: semantic.source || "semantic_model", provider: semantic.provider || null, model: semantic.model || null, verdict: semantic.verdict || null, severity: semantic.severity || null, riskLevel: semantic.riskLevel || null, confidence: semantic.confidence ?? 0 } : { source: "rules_only", status: "not_used_or_unavailable" },
       sessionPolicy: { source: "least_privilege_policy", capabilities: intent?.capabilities || {}, requireApproval: intent?.policy?.requireApproval || {}, resolution: intent?.policy?.resolution || null },
+      decisionPath: path,
       final: { verdict: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" }
     };
   }
@@ -560,7 +601,6 @@ class SessionPolicyEngine {
     }
     return null;
   }
-
   _semanticPromptDecision(semantic) {
     if (!this._isSemanticResult(semantic)) return null;
     const confidence = Number(semantic.confidence || 0);
@@ -701,7 +741,7 @@ class SessionPolicyEngine {
         permissionMode: input.permission_mode || "default", status: "active",
         createdAt: now, updatedAt: now, endedAt: null, turnId: input.turn_id || null,
         prompt: "", rawPrompt: "", promptPreview: "", promptHistory: [], intent: null, semanticAnalysis: null, effectivePolicy: null,
-        behaviorBaseline: null, behaviorDrift: null, decisionTrace: null, actions: []
+        behaviorBaseline: null, behaviorDrift: null, decisionTrace: null, traceSequence: 0, actions: []
       };
       this.sessions.set(id, session);
       this.stats.sessions++;
@@ -837,7 +877,8 @@ class SessionPolicyEngine {
       approvals: this.getApprovals("pending").length,
       approvalHistory: this.getApprovals().length,
       approvalStats: { created: this.stats.approvalCreated || 0, resolved: this.stats.approvalResolved || 0, expired: this.stats.approvalExpired || 0 },
-      semanticModel: this.semanticClassifier?.getStats?.() || { enabled: false }
+      semanticModel: this.semanticClassifier?.getStats?.() || { enabled: false },
+      persistence: { ...this.persistence }
     };
   }
 
@@ -846,7 +887,7 @@ class SessionPolicyEngine {
       id: session.id, agent: session.agent, model: session.model, cwd: session.cwd,
       permissionMode: session.permissionMode, status: session.status,
       createdAt: session.createdAt, updatedAt: session.updatedAt, endedAt: session.endedAt,
-      turnId: session.turnId, promptPreview: session.promptPreview,
+      turnId: session.turnId, traceSequence: Number(session.traceSequence || 0), promptPreview: session.promptPreview,
       prompt: session.prompt || "", rawPrompt: session.rawPrompt || session.prompt || "",
       promptHistory: (session.promptHistory || []).slice().reverse(),
       intent: session.intent, semanticAnalysis: session.semanticAnalysis || null, decisionTrace: session.decisionTrace || null, effectivePolicy: session.effectivePolicy,
@@ -930,8 +971,16 @@ class SessionPolicyEngine {
   }
   _load() {
     try {
-      if (!this.statePath || !fs.existsSync(this.statePath)) return;
-      const state = JSON.parse(fs.readFileSync(this.statePath, "utf8"));
+      if (!this.statePath) return;
+      const loaded = readJsonWithBackup(this.statePath, null);
+      this.persistence.stateSource = loaded.source;
+      this.persistence.recoveredState = loaded.recovered;
+      if (!loaded.value) return;
+      if (loaded.recovered && fs.existsSync(this.statePath)) {
+        const quarantinePath = `${this.statePath}.corrupt-${Date.now()}`;
+        try { fs.renameSync(this.statePath, quarantinePath); } catch (_) {}
+      }
+      const state = loaded.value;
       const internalRolloutIds = this._internalRolloutIds();
       this.migrationVersion = Number(state.migrationVersion || 0);
       let dirty = false;
@@ -959,6 +1008,8 @@ class SessionPolicyEngine {
         session.promptPreview = this._summarize(prompt, 220);
         if (history.length !== (session.promptHistory || []).length) dirty = true;
         session.promptHistory = history;
+        session.traceSequence = Number(session.traceSequence || session.actions?.length || 0);
+        this.traceSequence = Math.max(this.traceSequence, session.traceSequence);
         this.sessions.set(session.id, session);
       }
       this.stats = { ...this.stats, ...(state.stats || {}) };
@@ -1000,9 +1051,14 @@ class SessionPolicyEngine {
       const sessions = Array.from(this.sessions.values())
         .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
         .slice(0, 200);
-      fs.mkdirSync(path.dirname(this.statePath), { recursive: true });
-      fs.writeFileSync(this.statePath, JSON.stringify({ sessions, stats: this.stats, migrationVersion: this.migrationVersion }, null, 2), "utf8");
-    } catch (_) {}
+      writeJsonAtomic(this.statePath, { version: 2, sessions, stats: this.stats, migrationVersion: this.migrationVersion });
+      this.persistence.stateSource = "primary";
+      this.persistence.lastSaveAt = new Date().toISOString();
+      this.persistence.lastSaveError = null;
+    } catch (error) {
+      this.persistence.saveFailures++;
+      this.persistence.lastSaveError = error.message;
+    }
   }
 }
 

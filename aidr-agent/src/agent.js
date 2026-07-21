@@ -251,7 +251,7 @@ class AIDRAgent {
       });
     }
 
-    this.sensors.process = new ProcessSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.process.start();
+    this.sensors.process = new ProcessSensor(this.policy, this._addEvent.bind(this), this.enforcer, { statePath: path.join(LOG_DIR, "agent-discovery.json") }); await this.sensors.process.start();
     this.sensors.file = new FileSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.file.start();
     this.sensors.network = new NetworkSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.network.start();
     this.sensors.registry = new RegistrySensor(this.policy, this._addEvent.bind(this), this.ruleEngine); await this.sensors.registry.start();

