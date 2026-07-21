@@ -1,0 +1,119 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIDR 2.0 — AI Agent 动态防御系统</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.0/dist/cytoscape.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1>AIDR 2.0</h1>
+      <span class="subtitle">AI Dynamic Response</span>
+    </div>
+    <nav>
+      <a href="#" data-page="dashboard" class="nav-item active">📊 总览仪表盘</a>
+      <a href="#" data-page="agents" class="nav-item">🖥️ Agent 管理</a>
+      <a href="#" data-page="events" class="nav-item">📋 事件中心</a>
+      <a href="#" data-page="graph" class="nav-item">🔍 行为图谱</a>
+      <a href="#" data-page="intent" class="nav-item">🧠 意图分析</a>
+      <a href="#" data-page="policies" class="nav-item">⚙️ 策略管理</a>
+      <a href="#" data-page="alerts" class="nav-item">🔔 告警中心</a>
+      <a href="#" data-page="reports" class="nav-item">📈 报告</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="server-status" id="serverStatus">🔴 未连接</div>
+      <div class="server-url" id="serverUrl"></div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <!-- Dashboard -->
+    <section id="page-dashboard" class="page active">
+      <div class="stats-grid" id="dashboardStats"></div>
+      <div class="dash-row">
+        <div class="card chart-card"><h3>事件趋势 (24h)</h3><canvas id="chartTrend"></canvas></div>
+        <div class="card chart-card"><h3>风险分布</h3><canvas id="chartRisk"></canvas></div>
+      </div>
+      <div class="card"><h3>实时事件流</h3><div id="liveEvents" class="event-list"></div></div>
+    </section>
+
+      <div class="card"><h3>Codex 实时会话</h3><div id="liveSessions" class="event-list"></div></div>
+    <!-- Agents -->
+    <section id="page-agents" class="page">
+      <div class="card"><h3>Agent 列表</h3><div id="agentList" class="table-container"></div></div>
+    </section>
+
+    <!-- Events -->
+    <section id="page-events" class="page">
+      <div class="card">
+        <h3>事件搜索</h3>
+        <div class="filter-bar">
+          <input type="text" id="eventSearch" placeholder="搜索事件...">
+          <select id="eventVerdict"><option value="">全部判决</option><option value="allow">Allow</option><option value="alert">Alert</option><option value="block">Block</option></select>
+          <select id="eventCategory"><option value="">全部分类</option></select>
+        </div>
+        <div id="eventList" class="table-container"></div>
+        <div class="pagination" id="eventPagination"></div>
+      </div>
+    </section>
+
+    <!-- Graph -->
+    <section id="page-graph" class="page">
+      <div class="card">
+        <h3>行为图谱</h3>
+        <div class="filter-bar">
+          <select id="graphSession"><option value="">选择会话...</option></select>
+          <button id="graphPlay" class="btn">▶ 播放</button>
+          <button id="graphPause" class="btn">⏸ 暂停</button>
+          <button id="graphReset" class="btn">↺ 重置</button>
+        </div>
+        <div id="cyGraph" style="height:500px;border:1px solid #30363d;border-radius:8px;"></div>
+      </div>
+    </section>
+
+    <!-- Intent -->
+    <section id="page-intent" class="page">
+      <div class="card">
+        <h3>意图分析</h3>
+        <textarea id="intentPrompt" placeholder="输入 AI Agent 的 prompt/指令..." rows="4"></textarea>
+        <button id="intentAnalyze" class="btn btn-primary">分析意图</button>
+        <div id="intentResult" class="result-box" style="display:none"></div>
+      </div>
+      <div class="card">
+        <h3>行为模拟</h3>
+        <textarea id="simulateActions" placeholder='JSON 行为数组，如: [{"category":"process","summary":"...","detail":{}}]' rows="4"></textarea>
+        <button id="simulateRun" class="btn btn-primary">模拟执行</button>
+        <div id="simulateResult" class="result-box" style="display:none"></div>
+      </div>
+    </section>
+
+    <!-- Policies -->
+    <section id="page-policies" class="page">
+      <div class="card">
+        <h3>策略管理</h3>
+        <button id="policyCreate" class="btn btn-primary">+ 创建策略</button>
+        <div id="policyList" class="table-container"></div>
+      </div>
+    </section>
+
+    <!-- Alerts -->
+    <section id="page-alerts" class="page">
+      <div class="card"><h3>告警列表</h3><div id="alertList" class="table-container"></div></div>
+    </section>
+
+    <!-- Reports -->
+    <section id="page-reports" class="page">
+      <div class="card">
+        <h3>安全报告</h3>
+        <div id="reportContent"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

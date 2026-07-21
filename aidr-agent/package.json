@@ -1,0 +1,16 @@
+{
+  "name": "aidr-agent",
+  "version": "2.2.5",
+  "description": "AIDR Agent - AI Agent EDR endpoint sensor",
+  "main": "src/agent.js",
+  "scripts": {
+    "start": "node src/agent.js",
+    "dev": "node --watch src/agent.js",
+    "test": "node test/sessionPolicyEngine.test.js && node test/behaviorDriftEngine.test.js && node test/config.test.js && node test/policyStore.test.js && node test/codexSessionSensor.test.js && node test/promptSanitizer.test.js && node test/llmClassifier.test.js && node test/localSemanticClassifier.test.js && node test/semanticPolicyEngine.test.js && node test/agentIdentityEngine.test.js && node test/openCodeSessionSensor.test.js && node test/agentAdapter.test.js && node test/policyHierarchy.test.js && node test/policyValidation.test.js && node test/behaviorTraceGraph.test.js && node test/sessionContextGraph.test.js && node test/approvalPersistence.test.js && node test/enforcerFailClosed.test.js && node test/enforcementCapabilities.test.js && node test/transportOutbox.test.js && node test/threatDetectionEngine.test.js"
+  },
+  "dependencies": {
+    "sql.js": "^1.11.0",
+    "ws": "^8.17.0",
+    "uuid": "^11.0.0"
+  }
+}

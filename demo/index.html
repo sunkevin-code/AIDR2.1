@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIDR 攻击防御演示台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>AIDR 攻击防御演示台</h1>
+      <p>演示 AI Agent 在每个任务内动态生成最小权限策略，并对越权文件、MCP、网络和进程行为实时阻断。</p>
+    </div>
+    <div class="status" id="systemStatus">
+      <span class="pulse"></span>
+      <strong>Runtime Guard 已启用</strong>
+      <small>策略模式：Zero Trust</small>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel scenario-panel">
+      <div class="panel-title">
+        <h2>任务场景</h2>
+        <button id="resetBtn" class="icon-btn" title="重置演示" aria-label="重置演示">↺</button>
+      </div>
+      <div class="scenario-list" id="scenarioList"></div>
+
+      <div class="prompt-box">
+        <label for="taskPrompt">当前任务 / 可疑输入</label>
+        <textarea id="taskPrompt" rows="8"></textarea>
+        <div class="actions">
+          <button id="analyzeBtn">1. 生成动态策略</button>
+          <button id="runBtn">2. 执行 Agent 行为链</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel policy-panel">
+      <div class="panel-title">
+        <h2>动态策略自学习</h2>
+        <span class="badge" id="riskBadge">等待分析</span>
+      </div>
+      <div class="intent-grid">
+        <div>
+          <h3>意图分析</h3>
+          <ul id="intentList"></ul>
+        </div>
+        <div>
+          <h3>预测行为链</h3>
+          <ol id="chainList"></ol>
+        </div>
+      </div>
+      <h3>策略包</h3>
+      <pre id="policyOutput">点击“生成动态策略”后显示任务级最小权限策略。</pre>
+    </section>
+
+    <section class="panel runtime-panel">
+      <div class="panel-title">
+        <h2>实时监控与阻断</h2>
+        <span class="badge live">Live</span>
+      </div>
+      <div class="runtime-map">
+        <div class="sensor" data-sensor="file">
+          <strong>文件执行点</strong>
+          <span>open/read/write/delete</span>
+        </div>
+        <div class="sensor" data-sensor="mcp">
+          <strong>MCP Gateway</strong>
+          <span>tool.invoke / args</span>
+        </div>
+        <div class="sensor" data-sensor="net">
+          <strong>网络执行点</strong>
+          <span>dns/connect/http</span>
+        </div>
+        <div class="sensor" data-sensor="proc">
+          <strong>进程执行点</strong>
+          <span>exec / child tree</span>
+        </div>
+      </div>
+      <h3>事件流</h3>
+      <div class="events" id="eventStream"></div>
+    </section>
+  </main>
+
+  <section class="bottom">
+    <div class="panel">
+      <h2>攻击链回放</h2>
+      <div class="attack-chain" id="attackChain"></div>
+    </div>
+    <div class="panel">
+      <h2>防御效果</h2>
+      <div class="scoreboard">
+        <div><strong id="allowCount">0</strong><span>放行</span></div>
+        <div><strong id="blockCount">0</strong><span>阻断</span></div>
+        <div><strong id="alertCount">0</strong><span>告警</span></div>
+        <div><strong id="learnCount">0</strong><span>学习样本</span></div>
+      </div>
+      <p class="note" id="summaryNote">选择一个场景开始演示。</p>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

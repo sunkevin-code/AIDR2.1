@@ -1,0 +1,46 @@
+{
+  "version": "0.3.0",
+  "mode": "enforce",
+  "agentName": "Codex",
+  "workspaceRoot": "C:\\Users\\OseasyVM\\Documents\\AIDR",
+  "port": 8787,
+  "sessionPolicy": {
+    "taskId": "aidr-local-web-guardian",
+    "ttlMinutes": 120,
+    "allowedWritePaths": [
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\architecture\\**",
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\demo\\**",
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\docs\\**",
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\aidr-guardian-service\\logs\\**"
+    ],
+    "deniedPaths": [
+      "C:\\Users\\*\\.ssh\\**",
+      "C:\\Users\\*\\.aws\\**",
+      "C:\\Users\\*\\.azure\\**",
+      "C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\**",
+      "**\\.env",
+      "**\\id_rsa",
+      "**\\*.pem",
+      "**\\*.pfx"
+    ],
+    "deniedCommandPatterns": [
+      "EncodedCommand",
+      "Invoke-WebRequest",
+      "iwr ",
+      "curl ",
+      "wget ",
+      "bitsadmin",
+      "Start-BitsTransfer",
+      "Remove-Item -Recurse",
+      "rmdir /s",
+      "reg save",
+      "mimikatz",
+      "evil.example"
+    ],
+    "allowedDomains": [
+      "localhost",
+      "127.0.0.1"
+    ],
+    "blockedProcessAction": "kill"
+  }
+}

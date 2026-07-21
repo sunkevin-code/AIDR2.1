@@ -1,0 +1,152 @@
+{
+    "agentId":  "aidr-local-agent-001",
+    "agentType":  "codex",
+    "version":  "2.2.5",
+    "mode":  "enforce",
+    "workspaceRoot":  "C:\\Users\\OseasyVM\\Documents",
+    "serverUrl":  "http://127.0.0.1:8888",
+    "serverAuthToken":  "",
+    "port":  8787,
+    "sensors":  {
+                    "process":  {
+                                    "enabled":  true,
+                                    "provider":  "etw_wmi"
+                                },
+                    "file":  {
+                                 "enabled":  true,
+                                 "watchPaths":  [
+                                                    "C:\\Users\\OseasyVM\\Documents\\AIDR"
+                                                ]
+                             },
+                    "network":  {
+                                    "enabled":  true,
+                                    "provider":  "etw"
+                                },
+                    "mcp_gateway":  {
+                                        "enabled":  true,
+                                        "proxy":  9797
+                                    },
+                    "registry":  {
+                                     "enabled":  true,
+                                     "watchKeys":  [
+
+                                                   ]
+                                 },
+                    "shell":  {
+                                  "enabled":  true
+                              }
+                },
+    "sessionPolicy":  {
+                          "ttlMinutes":  120,
+                          "defaultDenyUnrequestedTools":  true,
+                          "allowedWritePaths":  [
+
+                                                ],
+                          "deniedPaths":  [
+                                              "**\\.ssh\\**",
+                                              "**\\.aws\\**",
+                                              "**\\.azure\\**",
+                                              "**\\AppData\\Roaming\\Microsoft\\Credentials\\**",
+                                              "**\\.env",
+                                              "**\\id_rsa",
+                                              "**\\*.pem",
+                                              "**\\*.pfx"
+                                          ],
+                          "deniedCommandPatterns":  [
+                                                        "EncodedCommand",
+                                                        "mimikatz",
+                                                        "Invoke-WebRequest",
+                                                        "iwr ",
+                                                        "curl ",
+                                                        "wget ",
+                                                        "bitsadmin",
+                                                        "Start-BitsTransfer",
+                                                        "Remove-Item -Recurse",
+                                                        "rmdir /s",
+                                                        "reg save"
+                                                    ],
+                          "allowedDomains":  [
+                                                 "localhost",
+                                                 "127.0.0.1"
+                                             ],
+                          "blockedProcessAction":  "kill",
+                          "protectedPaths":  [
+
+                                             ],
+                          "blockedNetworkPorts":  [
+                                                      22,
+                                                      3389,
+                                                      5900,
+                                                      5985,
+                                                      5986
+                                                  ],
+                          "blockedNetworkIps":  [
+
+                                                ]
+                      },
+    "enforcement":  {
+                        "fileAction":  "alert",
+                        "quarantineDir":  "",
+                        "blockSuspiciousNetwork":  true
+                    },
+    "privacy":  {
+                    "uploadRawPrompts":  false,
+                    "localPromptRetentionDays":  7
+                },
+    "localSemanticModel":  {
+                              "enabled":  true,
+                              "mode":  "local_first",
+                              "confidenceThreshold":  0.72,
+                              "maxChars":  6000
+                          },
+    "semanticRuntime":  {
+                           "enabled":  true,
+                           "mode":  "local_first",
+                           "confidenceThreshold":  0.72,
+                           "remoteFallback":  true
+                       },    "llmConfig":  {
+                      "provider":  "deepseek",
+                      "endpoint":  "https://api.deepseek.com",
+                      "model":  "deepseek-v4-flash",
+                      "apiKey":  "",
+                      "enabled":  false,
+                      "maxTokens":  512,
+                      "temperature":  0.1,
+                      "apiKeyEnv":  "AIDR_DEEPSEEK_API_KEY",
+                      "timeoutMs":  8000,
+                      "jsonOutput":  true,
+                      "promptMaxChars":  6000,
+                      "redactPrompts":  true,
+                      "failMode":  "rules_only"
+                  },
+    "agentPolicies":  {
+                          "default":  {
+                                          "mode":  "inherit",
+                                          "capabilities":  {
+                                                               "fileRead":  true,
+                                                               "fileWrite":  true,
+                                                               "shell":  true,
+                                                               "network":  true,
+                                                               "mcpRead":  true,
+                                                               "mcpWrite":  true
+                                                           },
+                                          "allowedReadPaths":  [
+
+                                                               ],
+                                          "allowedWritePaths":  [
+
+                                                                ],
+                                          "allowedDomains":  [
+
+                                                             ],
+                                          "allowedMcpTools":  [
+
+                                                              ],
+                                          "requireApproval":  {
+                                                                  "externalNetwork":  true,
+                                                                  "sensitiveData":  true,
+                                                                  "destructiveAction":  true
+                                                              }
+                                      }
+                      }
+}

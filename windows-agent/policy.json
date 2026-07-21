@@ -1,0 +1,58 @@
+{
+  "version": "0.1.0",
+  "mode": "enforce",
+  "agentName": "Codex",
+  "workspaceRoot": "C:\\Users\\OseasyVM\\Documents\\AIDR",
+  "logPath": "C:\\Users\\OseasyVM\\Documents\\AIDR\\windows-agent\\logs\\aidr-events.jsonl",
+  "sessionPolicy": {
+    "taskId": "aidr-local-guardian",
+    "ttlMinutes": 120,
+    "allowedReadPaths": [
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\**"
+    ],
+    "allowedWritePaths": [
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\architecture\\**",
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\demo\\**",
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\docs\\**",
+      "C:\\Users\\OseasyVM\\Documents\\AIDR\\windows-agent\\logs\\**"
+    ],
+    "deniedPaths": [
+      "C:\\Users\\*\\.ssh\\**",
+      "C:\\Users\\*\\.aws\\**",
+      "C:\\Users\\*\\.azure\\**",
+      "C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\**",
+      "**\\.env",
+      "**\\id_rsa",
+      "**\\*.pem",
+      "**\\*.pfx"
+    ],
+    "allowedTools": [
+      "powershell.exe",
+      "pwsh.exe",
+      "node.exe",
+      "npm.cmd",
+      "git.exe"
+    ],
+    "deniedCommandPatterns": [
+      "EncodedCommand",
+      "Invoke-WebRequest",
+      "iwr ",
+      "curl ",
+      "wget ",
+      "bitsadmin",
+      "Start-BitsTransfer",
+      "Remove-Item -Recurse",
+      "rmdir /s",
+      "ssh-keygen",
+      "net user",
+      "reg save",
+      "mimikatz",
+      "evil.example"
+    ],
+    "allowedDomains": [
+      "localhost",
+      "127.0.0.1"
+    ],
+    "blockedProcessAction": "kill"
+  }
+}

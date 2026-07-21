@@ -1,0 +1,14 @@
+{
+  "name": "aidr-guardian-service",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "start": "node aidr-service.js",
+    "build:exe": "node build-exe.js",
+    "build:setup": "node build-setup.js",
+    "build:all": "node build-exe.js && node build-setup.js"
+  },
+  "devDependencies": {
+    "postject": "^1.0.0-alpha.6"
+  }
+}

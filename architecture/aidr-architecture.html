@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIDR 零信任最小权限防御系统架构</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --ink: #162033;
+      --muted: #5b6678;
+      --line: #c8d2df;
+      --blue: #2563eb;
+      --green: #059669;
+      --red: #dc2626;
+      --amber: #d97706;
+      --panel: #ffffff;
+      --purple: #7c3aed;
+      --cyan: #0891b2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    header {
+      padding: 28px 40px 16px;
+      background: #101828;
+      color: #fff;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      font-weight: 750;
+      letter-spacing: 0;
+    }
+    header p {
+      margin: 0;
+      color: #d4dce8;
+      max-width: 1080px;
+      line-height: 1.6;
+    }
+    main {
+      padding: 28px 40px 44px;
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .architecture {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr 1.05fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .zone {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 710px;
+      box-shadow: 0 8px 22px rgba(16, 24, 40, 0.06);
+    }
+    .zone h2 {
+      margin: 0 0 6px;
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+    .zone .desc {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 13px;
+    }
+    .node {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      background: #fff;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 12px 0;
+    }
+    .node h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+    }
+    .node p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .node ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+    .green { border-left-color: var(--green); }
+    .red { border-left-color: var(--red); }
+    .amber { border-left-color: var(--amber); }
+    .purple { border-left-color: var(--purple); }
+    .cyan { border-left-color: var(--cyan); }
+    .flow {
+      margin: 18px 0;
+      padding: 14px;
+      border: 1px dashed #9aa7b8;
+      border-radius: 8px;
+      background: #f9fbfd;
+    }
+    .flow h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(110px, 1fr));
+      gap: 8px;
+    }
+    .step {
+      min-height: 74px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      position: relative;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .step strong {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+    .step::after {
+      content: ">";
+      position: absolute;
+      right: -10px;
+      top: 26px;
+      color: #75839a;
+      font-weight: 700;
+    }
+    .step:last-child::after { display: none; }
+    .matrix {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .card table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    .card th, .card td {
+      border-bottom: 1px solid #e8edf4;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .card th { color: #344054; background: #f7f9fc; }
+    .arrow-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .tag {
+      font-size: 11px;
+      color: #fff;
+      background: #334155;
+      border-radius: 999px;
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+    @media (max-width: 1120px) {
+      main { padding: 18px; }
+      header { padding: 24px 18px 14px; }
+      .architecture, .matrix { grid-template-columns: 1fr; }
+      .zone { min-height: auto; }
+      .steps { grid-template-columns: 1fr 1fr; }
+      .step::after { display: none; }
+    }
+    @media print {
+      body { background: #fff; }
+      header { background: #fff; color: #111827; border-bottom: 1px solid #ddd; }
+      header p { color: #4b5563; }
+      .zone, .card { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AIDR：AI Agent 零信任最小权限控制防御系统</h1>
+    <p>
+      面向每个会话、每个任务、每个工具调用动态生成最小权限策略，并在主机/容器/工具网关执行点进行实时放行、阻断、降权和告警。
+      参考思路包括 Cisco AI Defense 的 AI 工作流防护、Cisco Hypershield/Tetragon 的 eBPF 可观测与执行、以及 Secure Workload 的策略发现和微分段。
+    </p>
+  </header>
+  <main>
+    <section class="legend" aria-label="图例">
+      <span class="pill"><span class="dot" style="background:var(--blue)"></span>策略学习与推理</span>
+      <span class="pill"><span class="dot" style="background:var(--green)"></span>最小权限策略</span>
+      <span class="pill"><span class="dot" style="background:var(--red)"></span>实时执行与阻断</span>
+      <span class="pill"><span class="dot" style="background:var(--amber)"></span>审计与告警</span>
+      <span class="pill"><span class="dot" style="background:var(--purple)"></span>MCP/工具网关</span>
+    </section>
+
+    <section class="architecture">
+      <div class="zone">
+        <div class="arrow-title">
+          <h2>1. 会话与任务理解层</h2>
+          <span class="tag">Plan Before Permit</span>
+        </div>
+        <p class="desc">所有 AI Agent 任务先进入意图分析和行为链建模，生成可解释的任务画像。</p>
+        <article class="node">
+          <h3>Agent 会话代理</h3>
+          <p>采集用户请求、系统提示词、工具清单、MCP manifest、工作区边界、当前身份和环境上下文。</p>
+          <ul>
+            <li>会话 ID、任务 ID、模型/插件/连接器</li>
+            <li>敏感目录、密钥、网络域名、数据库和 API</li>
+          </ul>
+        </article>
+        <article class="node cyan">
+          <h3>意图与行为链分析器</h3>
+          <p>把自然语言任务转换成可执行行为图，预测文件、进程、网络、MCP、接口和权限需求。</p>
+          <ul>
+            <li>任务目标：读、写、构建、测试、部署、外发</li>
+            <li>行为链：读取上下文 -> 调用工具 -> 生成变更 -> 验证</li>
+          </ul>
+        </article>
+        <article class="node purple">
+          <h3>工具/MCP 风险画像</h3>
+          <p>对 MCP server、浏览器、shell、代码解释器、数据库、云 API 等能力打标签，识别高风险动词。</p>
+          <ul>
+            <li>危险能力：删除、移动、外传、安装、凭据访问</li>
+            <li>信任等级：本地只读、工作区写、互联网、特权系统</li>
+          </ul>
+        </article>
+        <article class="node amber">
+          <h3>攻击面检测</h3>
+          <p>检测 prompt injection、越权工具诱导、路径穿越、敏感数据外传、横向移动和供应链拉取。</p>
+        </article>
+      </div>
+
+      <div class="zone">
+        <div class="arrow-title">
+          <h2>2. 动态策略自学习与决策层</h2>
+          <span class="tag">Least Privilege per Task</span>
+        </div>
+        <p class="desc">系统根据任务画像生成一次性、短时效、可回滚的策略，并从真实遥测持续收敛。</p>
+        <article class="node green">
+          <h3>策略生成器</h3>
+          <p>生成任务级 Allow/Deny/Ask 策略，包含主体、资源、动作、条件、有效期和证据链。</p>
+          <ul>
+            <li>允许：只读指定文件、写入工作区目标路径、访问必要 MCP</li>
+            <li>拒绝：读取密钥目录、访问无关 repo、未知外网域名、提权</li>
+          </ul>
+        </article>
+        <article class="node">
+          <h3>策略自学习引擎</h3>
+          <p>对比计划行为与真实行为，学习正常基线，自动收窄过宽权限并标记异常偏离。</p>
+          <ul>
+            <li>策略推荐：从历史成功任务归纳路径和接口集合</li>
+            <li>漂移检测：行为链偏离、工具突增、敏感资源触碰</li>
+          </ul>
+        </article>
+        <article class="node amber">
+          <h3>风险评分与审批</h3>
+          <p>为每个动作计算上下文风险，低风险自动放行，高风险触发用户确认或安全团队审批。</p>
+          <ul>
+            <li>风险因素：敏感资源、不可逆写入、网络外发、未知工具</li>
+            <li>响应：放行、阻断、只读降级、沙箱执行、人工确认</li>
+          </ul>
+        </article>
+        <article class="node green">
+          <h3>策略包</h3>
+          <p>输出给执行点的机器可读策略：文件 ACL、进程树规则、网络 egress、MCP allowlist、命令约束。</p>
+        </article>
+
+        <div class="flow">
+          <h3>任务级闭环</h3>
+          <div class="steps">
+            <div class="step"><strong>采集</strong>会话、工具、工作区、身份上下文</div>
+            <div class="step"><strong>理解</strong>意图、资源、行为链、风险点</div>
+            <div class="step"><strong>生成</strong>最小权限策略和有效期</div>
+            <div class="step"><strong>执行</strong>主机/MCP/网络实时拦截</div>
+            <div class="step"><strong>审计</strong>事件、证据、策略命中原因</div>
+            <div class="step"><strong>学习</strong>基线收敛、策略推荐、异常回放</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="zone">
+        <div class="arrow-title">
+          <h2>3. 实时执行与运营层</h2>
+          <span class="tag">Runtime Enforcement</span>
+        </div>
+        <p class="desc">在主机、容器、网络、MCP 网关和工具代理上执行策略，形成统一审计视图。</p>
+        <article class="node red">
+          <h3>eBPF / LSM 执行点</h3>
+          <p>Linux 生产版执行文件、进程、网络、capability、syscall 级拦截；可对接 Tetragon/Falco/Cilium。</p>
+          <ul>
+            <li>文件：open/read/write/unlink/rename</li>
+            <li>网络：connect/dns/http egress</li>
+            <li>进程：execve、子进程树、提权行为</li>
+          </ul>
+        </article>
+        <article class="node red">
+          <h3>Windows 执行点</h3>
+          <p>Windows MVP 使用 ETW/WMI/FileSystemWatcher/防火墙/进程终止实现监控与准实时阻断；生产版可接 WFP、minifilter 或商业 EDR。</p>
+        </article>
+        <article class="node purple">
+          <h3>MCP / Tool Gateway</h3>
+          <p>所有工具调用先经过网关，检查 task_id、工具名、参数、目标资源和输出数据分类。</p>
+        </article>
+        <article class="node amber">
+          <h3>运营控制台</h3>
+          <p>展示实时事件、策略差异、阻断原因、攻击链回放、例外审批和合规报表。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="matrix">
+      <div class="card">
+        <h3>核心策略对象</h3>
+        <table>
+          <thead><tr><th>对象</th><th>示例</th></tr></thead>
+          <tbody>
+            <tr><td>主体</td><td>agent:codex, session:s-20260528, task:t-build-demo</td></tr>
+            <tr><td>资源</td><td>C:\Users\...\AIDR\demo\**, MCP:browser, api:github.com</td></tr>
+            <tr><td>动作</td><td>read, write, exec, connect, tool.invoke</td></tr>
+            <tr><td>条件</td><td>task_id 匹配、TTL 30 分钟、输出不含 secret 分类</td></tr>
+            <tr><td>响应</td><td>allow, deny, ask, alert, degrade_to_readonly, sandbox</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>攻击防御示例</h3>
+        <table>
+          <thead><tr><th>攻击行为</th><th>AIDR 响应</th></tr></thead>
+          <tbody>
+            <tr><td>Prompt injection 要求读取 .env 并上传</td><td>策略无密钥读取和未知域名外发权限，实时阻断并告警</td></tr>
+            <tr><td>Agent 试图删除工作区外目录</td><td>文件执行点拒绝 unlink/rename，生成高危事件</td></tr>
+            <tr><td>未知 MCP 工具请求数据库凭据</td><td>MCP Gateway 拦截，要求人工审批或隔离</td></tr>
+            <tr><td>任务行为链突然调用 shell 下载脚本</td><td>漂移检测升高风险，降级为只读沙箱</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

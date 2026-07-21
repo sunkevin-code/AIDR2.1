@@ -1,0 +1,37 @@
+windows-agent/logs/
+aidr-guardian-service/logs/
+aidr-guardian-service/node_modules/
+aidr-guardian-service/*.log
+aidr-guardian-service/dist/logs/
+aidr-guardian-service/dist/*.blob
+aidr-guardian-service/dist/*.log
+aidr-guardian-service/dist/*.xor
+aidr-agent-installer/dist/*.blob
+aidr-agent-installer/dist/*.xor
+
+# Dependencies and local runtime data
+**/node_modules/
+**/logs/
+**/*.log
+**/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+# Generated builds and binaries
+**/dist/
+**/*.exe
+**/*.blob
+**/*.xor
+output/
+# Local browser/debug artifacts
+.tmp-*/
+*.png
+tmp-*

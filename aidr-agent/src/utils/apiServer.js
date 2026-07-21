@@ -1,0 +1,459 @@
+const crypto = require("crypto");
+const http = require("http");
+
+function startApiServer({
+  policy, events, db, addEvent, sensors, transport, apiPort, handleEvent,
+  ruleEngine, llmClassifier, localSemanticClassifier, semanticClassifier, enforcer, policyStore, getPolicyVerification,
+  sessionPolicyEngine, adapterRegistry, getRuntimeHealth, onPolicyUpdate, onPolicyRollback
+}) {
+  const localToken = process.env.AIDR_LOCAL_TOKEN || "";
+
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://127.0.0.1:${apiPort}`);
+    setSecurityHeaders(res);
+
+    if (localToken && !validToken(req.headers["x-aidr-token"], localToken)) {
+      return sendJson(res, 401, { error: "unauthorized" });
+    }
+
+    try {
+      const result = await route(req, url);
+      if (!result) return sendJson(res, 404, { error: "not_found", path: url.pathname });
+      return sendJson(res, result.status || 200, result.body === undefined ? result : result.body);
+    } catch (error) {
+      return sendJson(res, error.status || 500, { error: error.message || "internal_error" });
+    }
+  });
+
+  async function route(req, url) {
+    const pathname = url.pathname;
+
+    if (pathname === "/api/status" && req.method === "GET") {
+      const stats = { allow: 0, alert: 0, block: 0 };
+      events.forEach(event => { if (stats[event.verdict] !== undefined) stats[event.verdict]++; });
+      const sensorList = {};
+      for (const [name, sensor] of Object.entries(sensors)) {
+        sensorList[name] = { active: sensor.active, stats: sensor.getStats?.() || {} };
+      }
+      return ok({
+        agentId: policy.agentId,
+        version: policy.version,
+        mode: policy.mode,
+        sensors: sensorList,
+        agentDiscovery: sensors.process?.getAgentDiscoveryStatus?.() || { agents: [], catalog: [], activeCount: 0, configuredCount: 0 },
+        serverConnected: Boolean(transport.connected || transport.httpHealthy),
+        transport: transport?.getStats?.() || { connected: Boolean(transport?.connected) },
+        runtimeHealth: getRuntimeHealth?.() || {},
+        uptime: process.uptime(),
+        stats,
+        ruleEngine: ruleEngine?.getStats() || {},
+        intentEngine: sessionPolicyEngine?.getStats() || {},
+        llm: llmClassifier?.getStats() || {},
+        localSemantic: localSemanticClassifier?.getStats?.() || {},
+        semanticRuntime: semanticClassifier?.getStats?.() || {},
+        enforcer: enforcer?.getStats() || {},
+        policyVerification: getPolicyVerification?.() || policyStore?.verifyActive?.() || { status: "unknown" },
+        events: events.slice(-30).reverse()
+      });
+    }
+
+    if (pathname === "/api/enforcement/status" && req.method === "GET") {
+      return ok({ capabilities: enforcer?.getCapabilities?.() || {}, stats: enforcer?.getStats?.() || {} });
+    }
+
+    if (pathname === "/api/semantic/config" && req.method === "GET") {
+      return ok({ config: llmClassifier?.getPublicConfig?.() || {} });
+    }
+
+    if (pathname === "/api/semantic/local-config" && req.method === "GET") {
+      return ok({ config: localSemanticClassifier?.getPublicConfig?.() || {}, stats: localSemanticClassifier?.getStats?.() || {} });
+    }
+
+    if (pathname === "/api/semantic/local-config" && req.method === "PUT") {
+      const body = await readBody(req);
+      const candidate = {
+        enabled: body.enabled !== false,
+        mode: ["local_only", "local_first", "remote_first"].includes(body.mode) ? body.mode : "local_first",
+        confidenceThreshold: Math.max(0.5, Math.min(0.99, Number(body.confidenceThreshold) || 0.72)),
+        maxChars: Math.max(500, Math.min(12000, Number(body.maxChars) || 6000))
+      };
+      onPolicyUpdate?.({ localSemanticModel: candidate });
+      return ok({ ok: true, config: localSemanticClassifier?.getPublicConfig?.() || candidate });
+    }
+
+    if (pathname === "/api/semantic/runtime" && req.method === "GET") {
+      return ok({ config: semanticClassifier?.getPublicConfig?.() || {}, stats: semanticClassifier?.getStats?.() || {} });
+    }
+
+    if (pathname === "/api/semantic/runtime" && req.method === "PUT") {
+      const body = await readBody(req);
+      const candidate = {
+        enabled: body.enabled !== false,
+        mode: ["local_only", "local_first", "remote_first"].includes(body.mode) ? body.mode : "local_first",
+        confidenceThreshold: Math.max(0.5, Math.min(0.99, Number(body.confidenceThreshold) || 0.72)),
+        remoteFallback: body.remoteFallback !== false
+      };
+      onPolicyUpdate?.({ semanticRuntime: candidate });
+      return ok({ ok: true, config: semanticClassifier?.getPublicConfig?.() || candidate });
+    }
+    if (pathname === "/api/semantic/providers" && req.method === "GET") {
+      return ok({ providers: llmClassifier?.getProviderCatalog?.() || [] });
+    }
+
+    if (pathname === "/api/semantic/key" && req.method === "PUT") {
+      const body = await readBody(req);
+      if (!body.apiKey) return badRequest("api_key_required");
+      const result = llmClassifier?.setApiKey?.(body.apiKey);
+      if (!result) return serviceUnavailable("semantic_classifier_unavailable");
+      return ok({ ok: true, ...result, config: llmClassifier.getPublicConfig() });
+    }
+
+    if (pathname === "/api/semantic/key" && req.method === "DELETE") {
+      const result = llmClassifier?.clearApiKey?.();
+      if (!result) return serviceUnavailable("semantic_classifier_unavailable");
+      return ok({ ok: true, ...result, config: llmClassifier.getPublicConfig() });
+    }
+
+    if (pathname === "/api/semantic/config" && req.method === "PUT") {
+      const body = await readBody(req);
+      if (Object.prototype.hasOwnProperty.call(body, "apiKey")) return badRequest("api_key_must_use_environment_variable");
+      const candidate = llmClassifier?.prepareUpdate?.(body);
+      if (!candidate) return serviceUnavailable("semantic_classifier_unavailable");
+      const errors = llmClassifier.validate(candidate);
+      if (errors.length) return { status: 400, body: { error: "invalid_semantic_config", fields: errors } };
+      onPolicyUpdate?.({ llmConfig: candidate });
+      return ok({ ok: true, config: llmClassifier.getPublicConfig(), policyVerification: getPolicyVerification?.() || {} });
+    }
+
+    if (pathname === "/api/semantic/test" && req.method === "POST") {
+      if (!llmClassifier) return serviceUnavailable("semantic_classifier_unavailable");
+      const body = await readBody(req);
+      if (body && (body.config || body.apiKey)) {
+        let candidate = null;
+        if (body.config) {
+          candidate = llmClassifier.prepareUpdate(body.config);
+          const errors = llmClassifier.validate(candidate);
+          if (errors.length) return { status: 400, body: { error: "invalid_semantic_config", fields: errors } };
+        }
+        return ok(await llmClassifier.testConnection({ config: candidate, apiKey: body.apiKey }));
+      }
+      return ok(await llmClassifier.testConnection());
+    }
+    if (pathname === "/api/events" && req.method === "GET") {
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 100);
+      const offset = clampInt(url.searchParams.get("offset"), 0, 100000, 0);
+      const verdict = url.searchParams.get("verdict");
+      const category = url.searchParams.get("category");
+      if (db) {
+        try {
+          const conditions = [];
+          conditions.push("(category <> 'opencode_session' OR detail NOT LIKE '%opencode_workspace_store%')");
+          const params = [];
+          if (verdict) { conditions.push("verdict = ?"); params.push(verdict); }
+          if (category) { conditions.push("category = ?"); params.push(category); }
+          const where = conditions.length ? " WHERE " + conditions.join(" AND ") : "";
+          const rows = queryAll("SELECT * FROM events" + where + " ORDER BY timestamp DESC LIMIT ? OFFSET ?", [...params, limit, offset]);
+          const total = queryOne("SELECT COUNT(*) as c FROM events" + where, params)?.c || 0;
+          if (rows.length || total || events.length === 0) return ok({ events: rows.map(parseEventRow), total });
+        } catch (_) {}
+      }
+      const filtered = events.slice().reverse().filter(event => (!verdict || event.verdict === verdict) && (!category || event.category === category));
+      return ok({ events: filtered.slice(offset, offset + limit), total: filtered.length });
+    }
+
+    if (pathname === "/api/events/stats" && req.method === "GET") {
+      if (!db) return ok({ total: events.length });
+      return ok({
+        total: queryOne("SELECT COUNT(*) as c FROM events")?.c || 0,
+        byVerdict: queryAll("SELECT verdict, COUNT(*) as c FROM events GROUP BY verdict"),
+        byCategory: queryAll("SELECT category, COUNT(*) as c FROM events GROUP BY category ORDER BY c DESC"),
+        byHour: queryAll("SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) as hour, COUNT(*) as c FROM events WHERE timestamp > datetime('now', '-24 hours') GROUP BY hour ORDER BY hour")
+      });
+    }
+
+    if (pathname === "/api/sensors" && req.method === "GET") {
+      const info = {};
+      for (const [name, sensor] of Object.entries(sensors)) info[name] = { active: sensor.active, stats: sensor.getStats?.() || {} };
+      return ok(info);
+    }
+
+    if (pathname === "/api/adapters" && req.method === "GET") {
+      return ok({ adapters: adapterRegistry?.getManifests?.() || [] });
+    }
+
+    if (pathname === "/api/approvals" && req.method === "GET") {
+      return ok({ approvals: sessionPolicyEngine?.getApprovals?.(url.searchParams.get("status") || "") || [] });
+    }
+
+    if (pathname === "/api/policy/resolution" && req.method === "GET") {
+      return ok({ resolution: sessionPolicyEngine?.getPolicyResolution?.(url.searchParams.get("agent"), url.searchParams.get("cwd")) || {} });
+    }
+
+    if (pathname === "/api/approvals" && req.method === "POST") {
+      const body = await readBody(req);
+      const result = sessionPolicyEngine?.resolveApproval?.(body.id, body.decision || "approved", body.ttlMinutes);
+      if (!result) return notFound("approval_not_found");
+      addEvent("approval", result.decision === "approved" ? "info" : "medium", result.decision === "approved" ? "allow" : "alert", `Approval ${result.decision}`, { approvalId: result.id, sessionId: result.sessionId }, { sessionId: result.sessionId, agentId: result.agent });
+      return ok({ ok: true, approval: result });
+    }
+
+    if (pathname === "/api/agents" && req.method === "GET") {
+      const processSensor = sensors.process;
+      return ok({ agents: processSensor?.getAgentIdentities?.() || [], catalog: processSensor?.getAgentCatalog?.() || [], ...(processSensor?.getAgentDiscoveryStatus?.() || {}) });
+    }
+
+    if (pathname === "/api/sessions" && req.method === "GET") {
+      const includeActions = url.searchParams.get("includeActions") === "1";
+      return ok({ sessions: sessionPolicyEngine?.getSessions(includeActions) || [] });
+    }
+
+    const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+    if (sessionMatch && req.method === "GET") {
+      const session = sessionPolicyEngine?.getSession(decodeURIComponent(sessionMatch[1]));
+      return session ? ok(session) : notFound("session_not_found");
+    }
+
+    const graphMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/graph$/);
+    if (graphMatch && req.method === "GET") {
+      const sessionId = decodeURIComponent(graphMatch[1]);
+      const graph = url.searchParams.get("view") === "context"
+        ? sessionPolicyEngine?.getContextGraph?.(sessionId)
+        : sessionPolicyEngine?.getGraph(sessionId);
+      return graph ? ok(graph) : notFound("session_not_found");
+    }
+
+    const sessionPolicyMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/policy$/);
+    if (sessionPolicyMatch && req.method === "PUT") {
+      const body = await readBody(req);
+      const session = sessionPolicyEngine?.updateSessionPolicy(decodeURIComponent(sessionPolicyMatch[1]), body);
+      if (!session) return notFound("session_not_found");
+      addEvent("policy", "info", "allow", "Session policy updated", {
+        sessionId: session.id,
+        fields: Object.keys(body || {})
+      }, { sessionId: session.id });
+      return ok({ ok: true, session });
+    }
+
+    if (pathname === "/api/hooks/codex" && req.method === "POST") {
+      if (!sessionPolicyEngine) return serviceUnavailable("session_policy_engine_unavailable");
+      const body = await readBody(req);
+      const result = await sessionPolicyEngine.handleHook(body || {});
+      return ok(result);
+    }
+
+    if (pathname === "/api/hooks/agent" && req.method === "POST") {
+      if (!sessionPolicyEngine) return serviceUnavailable("session_policy_engine_unavailable");
+      let body = await readBody(req);
+      if (!body || !body.agent) return badRequest("agent_required");
+      body = adapterRegistry?.normalize?.(body) || body;
+      body.hook_event_name = body.hook_event_name || body.event || "UserPromptSubmit";
+      const result = await sessionPolicyEngine.handleHook(body);
+      return ok(result);
+    }
+    if (pathname === "/api/rules" && req.method === "GET") {
+      return ok({ rules: ruleEngine?.getRules() || [], stats: ruleEngine?.getStats() || {} });
+    }
+    if (pathname === "/api/rules" && req.method === "POST") {
+      const body = await readBody(req);
+      ruleEngine?.addRule(body);
+      return ok({ ok: true, rule: body });
+    }
+    const ruleMatch = pathname.match(/^\/api\/rules\/([^/]+)$/);
+    if (ruleMatch && req.method === "DELETE") {
+      ruleEngine?.removeRule(decodeURIComponent(ruleMatch[1]));
+      return ok({ ok: true });
+    }
+
+    if (pathname === "/api/intent/analyze" && req.method === "POST") {
+      const body = await readBody(req);
+      const local = sessionPolicyEngine?.analyzePrompt(body.prompt || body.text || "", { cwd: body.cwd });
+      if (body.deep === true && llmClassifier) {
+        const deep = await llmClassifier.analyzePrompt(body.prompt || body.text || "");
+        return ok({ local, deep });
+      }
+      return ok({ local });
+    }
+
+    if (pathname === "/api/policy/templates" && req.method === "GET") {
+      return ok({ templates: policyTemplates() });
+    }
+
+    if (pathname === "/api/policy/validate" && req.method === "POST") {
+      const body = await readBody(req);
+      return ok(sessionPolicyEngine?.validatePolicy?.(body.policy || policy) || { valid: false, errors: [{ code: 'policy_engine_unavailable' }], warnings: [] });
+    }
+    if (pathname === "/api/policy/simulate" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!Array.isArray(body.actions)) return badRequest("actions_array_required");
+      return ok({ results: sessionPolicyEngine?.simulate?.(body.actions, body.policy || {}) || [] });
+    }
+
+    if (pathname === "/api/threat/test" && req.method === "POST") {
+      const body = await readBody(req);
+      return ok({ result: sessionPolicyEngine?.inspectThreat?.(body.text || body.content || "", body.context || {}) || {} });
+    }
+
+    if (pathname === "/api/intent/simulate" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!Array.isArray(body.actions)) return badRequest("actions_array_required");
+      const results = [];
+      for (const action of body.actions) {
+        const event = { category: action.category || "unknown", summary: action.summary || "", detail: action.detail || {} };
+        results.push({ action, ...(handleEvent ? await handleEvent(event) : { verdict: "allow" }) });
+      }
+      return ok({ results });
+    }
+
+    if (pathname === "/api/enforce" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!enforcer) return serviceUnavailable("enforcer_unavailable");
+      if (!body.type || !body.action) return badRequest("type_and_action_required");
+      return ok(await enforcer.enforce(body));
+    }
+
+    if (pathname === "/api/connect" && req.method === "POST") {
+      const body = await readBody(req);
+      const next = {};
+      if (body.serverUrl !== undefined) next.serverUrl = body.serverUrl;
+      if (body.serverAuthToken !== undefined) next.serverAuthToken = body.serverAuthToken;
+      onPolicyUpdate?.(next);
+      await transport.connect();
+      return ok({ ok: true, connected: transport.connected });
+    }
+
+    if (pathname === "/api/policy" && req.method === "GET") {
+      return ok({ ...redactPolicy(policy), policyVerification: getPolicyVerification?.() || policyStore?.verifyActive?.() || { status: "unknown" } });
+    }
+    if (pathname === "/api/policy" && req.method === "PUT") {
+      const body = await readBody(req);
+      const updated = onPolicyUpdate ? onPolicyUpdate(body) : Object.assign(policy, body);
+      return ok({ ok: true, policy: redactPolicy(updated), policyVerification: getPolicyVerification?.() || { status: "unknown" } });
+    }
+    if (pathname === "/api/policy/history" && req.method === "GET") {
+      return ok({ history: policyStore?.getHistory?.() || [] });
+    }
+    if (pathname === "/api/policy/verify" && req.method === "POST") {
+      return ok({ verification: policyStore?.verifyActive?.() || { status: "unavailable" } });
+    }
+    if (pathname === "/api/policy/rollback" && req.method === "POST") {
+      const body = await readBody(req);
+      const revision = Number(body.revision);
+      if (!Number.isInteger(revision) || revision < 1) return badRequest("valid_revision_required");
+      if (!onPolicyRollback) return serviceUnavailable("policy_rollback_unavailable");
+      const restored = onPolicyRollback(revision);
+      return ok({ ok: true, policy: redactPolicy(restored), policyVerification: getPolicyVerification?.() || { status: "unknown" } });
+    }
+
+    return null;
+  }
+
+  function queryAll(sql, params = []) {
+    if (!db) return [];
+    try {
+      const stmt = db.prepare(sql);
+      if (params.length) stmt.bind(params);
+      const rows = [];
+      while (stmt.step()) rows.push(stmt.getAsObject());
+      stmt.free();
+      return rows;
+    } catch (_) { return []; }
+  }
+
+  function queryOne(sql, params = []) {
+    return queryAll(sql, params)[0] || null;
+  }
+
+  server.on("error", error => {
+    try { addEvent("system", "high", "alert", "Agent API listener failed", { code: error.code || null, message: error.message, port: apiPort }); } catch (_) {}
+    // Let the Endpoint supervisor restart a failed worker instead of leaving an unhandled error.
+    process.exitCode = error.code === "EADDRINUSE" ? 73 : 74;
+    setImmediate(() => process.exit(process.exitCode));
+  });
+  server.listen(apiPort, "127.0.0.1", () => {
+    addEvent("system", "info", "allow", `Agent API: http://127.0.0.1:${apiPort}`,
+      { authentication: localToken ? "token" : "development-open" });
+  });
+  return server;
+}
+
+function validToken(provided, expected) {
+  const left = Buffer.from(String(provided || ""));
+  const right = Buffer.from(String(expected || ""));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function redactPolicy(policy) {
+  const redacted = { ...policy };
+  const llmConfig = { ...(policy.llmConfig || {}) };
+  delete llmConfig.apiKey;
+  llmConfig.apiKey = "";
+  const apiKeyEnv = llmConfig.apiKeyEnv || (llmConfig.provider === "deepseek" ? "AIDR_DEEPSEEK_API_KEY" : "OPENAI_API_KEY");
+  llmConfig.apiKeyEnv = apiKeyEnv;
+  llmConfig.apiKeyConfigured = Boolean(process.env[apiKeyEnv]);
+  redacted.serverAuthToken = policy.serverAuthToken ? "[configured]" : "";
+  redacted.llmConfig = llmConfig;
+  if (policy.signature) redacted.signature = { algorithm: policy.signature.algorithm, keyId: policy.signature.keyId, value: "[signed]" };
+  return redacted;
+}
+
+function parseEventRow(row) {
+  try { return { ...row, detail: row.detail ? JSON.parse(row.detail) : {} }; }
+  catch (_) { return { ...row, detail: {} }; }
+}
+
+function clampInt(value, min, max, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
+
+function setSecurityHeaders(res) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+}
+
+function readBody(req, maxBytes = 2 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", chunk => {
+      data += chunk;
+      if (Buffer.byteLength(data) > maxBytes) {
+        const error = new Error("request_too_large");
+        error.status = 413;
+        reject(error);
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!data) return resolve({});
+      try { resolve(JSON.parse(data)); }
+      catch (_) {
+        const error = new Error("invalid_json");
+        error.status = 400;
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(body));
+}
+
+function ok(body) { return { status: 200, body }; }
+function badRequest(error) { return { status: 400, body: { error } }; }
+function notFound(error) { return { status: 404, body: { error } }; }
+function serviceUnavailable(error) { return { status: 503, body: { error } }; }
+
+function policyTemplates() {
+  return [
+    { id: "coding-agent", label: "Coding Agent", mode: "enforce", capabilities: { fileRead: true, fileWrite: true, shell: true, network: true, mcpRead: true, mcpWrite: false }, requireApproval: { externalNetwork: true, sensitiveData: true, destructiveAction: true } },
+    { id: "read-only-review", label: "Read-only Review", mode: "enforce", capabilities: { fileRead: true, fileWrite: false, shell: false, network: false, mcpRead: true, mcpWrite: false }, requireApproval: { externalNetwork: true, sensitiveData: true, destructiveAction: true } },
+    { id: "restricted", label: "Restricted", mode: "enforce", capabilities: { fileRead: false, fileWrite: false, shell: false, network: false, mcpRead: false, mcpWrite: false }, requireApproval: { externalNetwork: true, sensitiveData: true, destructiveAction: true } }
+  ];
+}
+
+module.exports = { startApiServer };

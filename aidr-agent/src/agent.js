@@ -1,0 +1,442 @@
+const fs = require("fs");
+const crypto = require("crypto");
+const path = require("path");
+const { mergePolicy } = require("./utils/config");
+const { PolicyStore } = require("./utils/policyStore");
+const { Logger } = require("./utils/logger");
+const { EventBus } = require("./utils/eventBus");
+const { startApiServer } = require("./utils/apiServer");
+const { ProcessSensor } = require("./sensors/processSensor");
+const { FileSensor } = require("./sensors/fileSensor");
+const { NetworkSensor } = require("./sensors/networkSensor");
+const { MCPGateway } = require("./sensors/mcpGateway");
+const { RegistrySensor } = require("./sensors/registrySensor");
+const shellSensorModule = require("./sensors/shellSensor");
+const ShellSensor = shellSensorModule.ShellSensor || shellSensorModule.default || shellSensorModule;
+const { CodexSessionSensor } = require("./sensors/codexSessionSensor");
+const { OpenCodeSessionSensor } = require("./sensors/openCodeSessionSensor");
+const { CodexProxy } = require("./proxy/codexProxy");
+const { RuleEngine } = require("./engine/ruleEngine");
+const { LLMClassifier } = require("./engine/llmClassifier");
+const { LocalSemanticClassifier } = require("./engine/localSemanticClassifier");
+const { HybridSemanticClassifier } = require("./engine/hybridSemanticClassifier");
+const { SessionPolicyEngine } = require("./engine/sessionPolicyEngine");
+const { Enforcer } = require("./enforcement/enforcer");
+const { TransportClient } = require("./transport/client");
+const { createDefaultAdapterRegistry } = require("./adapters/agentAdapter");
+
+const BUNDLED_POLICY_PATH = path.join(__dirname, "..", "config", "policy.json");
+const POLICY_PATH = process.env.AIDR_POLICY_PATH || (process.env.AIDR_ENDPOINT_HOME
+  ? path.join(process.env.AIDR_ENDPOINT_HOME, "data", "policy.json")
+  : BUNDLED_POLICY_PATH);
+const LOG_DIR = path.join(__dirname, "..", "logs");
+const SESSION_STATE_PATH = path.join(LOG_DIR, "session-policies.json");
+const TRANSPORT_OUTBOX_PATH = path.join(LOG_DIR, "transport-outbox.json");
+
+function ensureAgentPolicySchema(policy) {
+  const next = policy || {};
+  if (!next.agentPolicies || typeof next.agentPolicies !== "object" || Array.isArray(next.agentPolicies)) next.agentPolicies = {};
+  if (!next.agentPolicies.default || typeof next.agentPolicies.default !== "object") {
+    next.agentPolicies.default = {
+      mode: "inherit",
+      capabilities: { fileRead: true, fileWrite: true, shell: true, network: true, mcpRead: true, mcpWrite: true },
+      allowedReadPaths: [],
+      allowedWritePaths: [],
+      allowedDomains: [],
+      allowedMcpTools: [],
+      requireApproval: { externalNetwork: true, sensitiveData: true, destructiveAction: true }
+    };
+    return { policy: next, changed: true };
+  }
+  return { policy: next, changed: false };
+}
+
+class AIDRAgent {
+  constructor() {
+    this.policyStore = new PolicyStore(POLICY_PATH, BUNDLED_POLICY_PATH, { dataDir: path.dirname(POLICY_PATH) });
+    const loadedPolicy = this.policyStore.load();
+    this.policy = loadedPolicy.policy;
+    this.policyVerification = loadedPolicy.verification;
+    if (!String(this.policy.agentId || "").trim()) {
+      const hostname = require("os").hostname().replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase();
+      try {
+        this.policy = this.policyStore.save({ ...this.policy, agentId: "aidr-" + hostname }, { signer: "aidr-agent-id-bootstrap" });
+        this.policyVerification = this.policyStore.verifyActive();
+      } catch (error) {
+        this.policyVerification = { ...this.policyVerification, agentIdBootstrapError: error.message };
+      }
+    }
+    if (["bundled_baseline", "unsigned_legacy"].includes(this.policyVerification.status)) {
+      try {
+        this.policy.version = this.policy.version || "2.2.5";
+        this.policy = this.policyStore.save(this.policy, { signer: "aidr-local-migration" });
+        this.policyVerification = this.policyStore.verifyActive();
+      } catch (error) {
+        this.policyVerification = { ...this.policyVerification, migrationError: error.message };
+      }
+    }
+    const agentPolicySchema = ensureAgentPolicySchema(this.policy);
+    if (agentPolicySchema.changed) {
+      try {
+        this.policy = this.policyStore.save(agentPolicySchema.policy, { signer: "aidr-agent-policy-schema-v1" });
+        this.policyVerification = this.policyStore.verifyActive();
+      } catch (error) {
+        this.policyVerification = { ...this.policyVerification, agentPolicyMigrationError: error.message };
+      }
+    }
+    this.logger = new Logger(LOG_DIR, this.policy.agentId || "agent-" + Date.now().toString(36));
+    this.eventBus = new EventBus();
+    this.adapterRegistry = createDefaultAdapterRegistry();
+    this.events = [];
+    this.eventIds = new Set();
+    this.sessions = [];
+    this.sensors = {};
+    this.ruleEngine = new RuleEngine(this.policy);
+    this.llmClassifier = new LLMClassifier(this.policy.llmConfig || {});
+    this.localSemanticClassifier = new LocalSemanticClassifier(this.policy.localSemanticModel || {});
+    this.semanticClassifier = new HybridSemanticClassifier(this.localSemanticClassifier, this.llmClassifier, this.policy.semanticRuntime || {});
+    this.enforcer = new Enforcer(this.policy, this._addEvent.bind(this));
+    this.transport = new TransportClient(this.policy, this._addEvent.bind(this), TRANSPORT_OUTBOX_PATH);
+    this.sessionPolicyEngine = new SessionPolicyEngine(this.policy, this._addEvent.bind(this), SESSION_STATE_PATH, this.semanticClassifier);
+    this.db = null;
+    this.dbSaveTimer = null;
+    this.dbDirty = false;
+    this.apiPort = Number(process.env.AIDR_AGENT_PORT || this.policy.port || 8787);
+    this.sessionId = null;
+  }
+
+  async _initDB() {
+    try {
+      const initSql = require("sql.js");
+      const SQL = await initSql();
+      const DB_PATH = path.join(LOG_DIR, "aidr-events.db");
+       const dbStat = fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH) : null;
+       if (dbStat && dbStat.size > 32 * 1024 * 1024) {
+         const archivePath = DB_PATH + ".archive-" + new Date().toISOString().replace(/[:.]/g, "-");
+         try { fs.renameSync(DB_PATH, archivePath); this.logger.warn("Large event DB archived: " + archivePath); } catch (error) { this.logger.warn("Large event DB archive failed: " + error.message); }
+       }
+      if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+      let recovered = false;
+      let candidate = null;
+      if (fs.existsSync(DB_PATH)) {
+        try {
+          candidate = new SQL.Database(fs.readFileSync(DB_PATH));
+          candidate.run("SELECT name FROM sqlite_master LIMIT 1");
+          this.db = candidate;
+        } catch (error) {
+          try { candidate?.close?.(); } catch (_) {}
+          recovered = true;
+          const quarantinePath = DB_PATH + ".corrupt-" + new Date().toISOString().replace(/[:.]/g, "-");
+          try { fs.renameSync(DB_PATH, quarantinePath); } catch (renameError) { this.logger.warn("Event DB quarantine rename failed: " + renameError.message); }
+          this.logger.warn("Event DB quarantined: " + error.message);
+          this.db = new SQL.Database();
+        }
+      } else {
+        this.db = new SQL.Database();
+      }
+      this.db.run("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, schema_version INTEGER DEFAULT 1, timestamp TEXT NOT NULL, category TEXT NOT NULL, severity TEXT DEFAULT 'info', verdict TEXT DEFAULT 'allow', summary TEXT NOT NULL, detail TEXT DEFAULT '{}', mitre_tactic TEXT, mitre_technique TEXT, session_id TEXT, agent_id TEXT, matched_rule TEXT)");
+      const columns = new Set((this.db.exec("PRAGMA table_info(events)")[0]?.values || []).map(row => String(row[1])));
+      for (const [name, type] of [["event_id", "TEXT"], ["schema_version", "INTEGER DEFAULT 1"], ["agent_id", "TEXT"]]) { if (!columns.has(name)) this.db.run(`ALTER TABLE events ADD COLUMN ${name} ${type}`); }
+      this.db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id)");
+      this.db.run("CREATE INDEX IF NOT EXISTS idx_events_time ON events(timestamp)");
+      this.db.run("CREATE INDEX IF NOT EXISTS idx_events_verdict ON events(verdict)");
+      this.db.run("CREATE INDEX IF NOT EXISTS idx_events_category ON events(category)");
+      if (recovered) this._recoverEventsFromLog(5000);
+      this._saveDB();
+    } catch (e) { this.logger.warn("DB init failed: " + e.message); }
+  }
+
+
+  _recoverEventsFromLog(limit = 5000) {
+    try {
+      const logPath = path.join(LOG_DIR, "aidr-events.jsonl");
+      if (!fs.existsSync(logPath)) return;
+      const lines = fs.readFileSync(logPath, "utf8").split(/\r?\n/).filter(Boolean).slice(-limit);
+      for (const line of lines) {
+        let record;
+        try { record = JSON.parse(line); } catch (_) { continue; }
+        const event = {
+          eventId: record.eventId || record.event_id || crypto.randomUUID(),
+          schemaVersion: Number(record.schemaVersion || record.schema_version || 1),
+          time: record.time || record.timestamp || new Date().toISOString(),
+          timestamp: record.timestamp || record.time || new Date().toISOString(),
+          category: record.category || "system",
+          severity: record.severity || "info",
+          verdict: record.verdict || "allow",
+          summary: record.summary || "Recovered event",
+          detail: record.detail && typeof record.detail === "object" ? record.detail : {},
+          mitreTactic: record.mitreTactic || null,
+          mitreTechnique: record.mitreTechnique || null,
+          sessionId: record.sessionId || null,
+          agentId: record.agentId || record.agent_id || record.detail?.agent || null,
+          matchedRule: record.matchedRule || null
+        };
+        if (this.eventIds.has(event.eventId)) continue;
+        this.eventIds.add(event.eventId);
+        this.events.push(event);
+        this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,matched_rule) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [event.eventId, event.schemaVersion, event.timestamp, event.category, event.severity, event.verdict, event.summary, JSON.stringify(event.detail), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId, event.matchedRule]);
+      }
+      if (this.events.length > 5000) this.events = this.events.slice(-5000);
+      this.logger.log("allow", "info", "system", "Recovered recent events after database repair", { count: lines.length });
+    } catch (error) {
+      this.logger.warn("Event recovery failed: " + error.message);
+    }
+  }
+
+  _saveDB() {
+    if (this.dbSaveTimer) {
+      clearTimeout(this.dbSaveTimer);
+      this.dbSaveTimer = null;
+    }
+    if (!this.db) return;
+    try {
+      fs.writeFileSync(path.join(LOG_DIR, "aidr-events.db"), Buffer.from(this.db.export()));
+      this.dbDirty = false;
+    } catch (_) {}
+  }
+
+  _scheduleDBSave(delayMs = 1500) {
+    if (!this.db || this.dbSaveTimer) {
+      if (this.db) this.dbDirty = true;
+      return;
+    }
+    this.dbDirty = true;
+    this.dbSaveTimer = setTimeout(() => {
+      this.dbSaveTimer = null;
+      if (this.dbDirty) this._saveDB();
+    }, delayMs);
+    this.dbSaveTimer.unref?.();
+  }
+
+  _addEvent(category, severity, verdict, summary, detail = {}, tags = {}) {
+    const now = new Date().toISOString();
+    const event = { eventId: crypto.randomUUID(), schemaVersion: 1, time: now, timestamp: now, category, severity, verdict, summary, detail: detail || {}, mitreTactic: tags.mitreTactic || null, mitreTechnique: tags.mitreTechnique || null, sessionId: tags.sessionId || detail?.sessionId || this.sessionId, agentId: tags.agentId || detail?.agent || detail?.agentId || null, matchedRule: tags.matchedRule || detail?.matchedRule || null };
+    if (this.eventIds.has(event.eventId)) return event;
+    this.eventIds.add(event.eventId);
+    this.events.push(event);
+    if (this.events.length > 5000) {
+      const removed = this.events.shift();
+      if (removed?.eventId) this.eventIds.delete(removed.eventId);
+    }
+    this.logger.log(verdict, severity, category, summary, detail, { eventId: event.eventId, schemaVersion: event.schemaVersion, timestamp: event.timestamp, sessionId: event.sessionId, agentId: event.agentId, matchedRule: event.matchedRule });
+    if (this.db) {
+      try { this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,matched_rule) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [event.eventId, event.schemaVersion, event.timestamp, category, severity, verdict, summary, JSON.stringify(detail), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId, event.matchedRule]); this._scheduleDBSave(); } catch (_) {}
+    }
+    this.transport.sendEvent(event);
+    this.eventBus.publish("event", event);
+    return event;
+  }
+
+  async _handleEvent(event) {
+    const ruleResult = this.ruleEngine.evaluate(event);
+    if (ruleResult.verdict === "block") {
+      this._addEvent(event.category, ruleResult.severity, "block", "[BLOCKED] " + event.summary, { ...event.detail, matchedRule: ruleResult.matchedRule }, { matchedRule: ruleResult.matchedRule });
+      return { ...event, verdict: "block" };
+    }
+    if (ruleResult.verdict === "alert" || ruleResult.severity === "high") {
+      const llmResult = await this.llmClassifier.analyzeIntent(event);
+      this._addEvent(event.category, llmResult.severity || ruleResult.severity, llmResult.verdict || ruleResult.verdict, "[ANALYZED] " + event.summary, { ...event.detail, llmAnalysis: llmResult });
+      return { ...event, verdict: llmResult.verdict || ruleResult.verdict };
+    }
+    return { ...event, verdict: ruleResult.verdict };
+  }
+
+  async start() {
+    console.log("AIDR Agent v" + this.policy.version + " (mode: " + this.policy.mode + ")");
+    await this._initDB();
+    if (this.policyVerification.status !== "verified") {
+      this._addEvent("policy", "high", "alert", "当前策略未通过签名校验，已使用受控降级模式", {
+        verification: this.policyVerification,
+        policyPath: POLICY_PATH
+      });
+    }
+
+    this.sensors.process = new ProcessSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.process.start();
+    this.sensors.file = new FileSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.file.start();
+    this.sensors.network = new NetworkSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.network.start();
+    this.sensors.registry = new RegistrySensor(this.policy, this._addEvent.bind(this), this.ruleEngine); await this.sensors.registry.start();
+    if (typeof ShellSensor !== "function") throw new Error("shell_sensor_constructor_unavailable");
+    this.sensors.shell = new ShellSensor(this.policy, this._addEvent.bind(this), this.ruleEngine); await this.sensors.shell.start();
+    this.sensors.mcp = new MCPGateway(this.policy, this._addEvent.bind(this), this.ruleEngine); await this.sensors.mcp.start();
+
+    this.sensors.codex = new CodexSessionSensor(this.policy, this._addEvent.bind(this), this.eventBus);
+    await this.sensors.codex.start();
+
+    this.sensors.openCode = new OpenCodeSessionSensor(this.policy, this._addEvent.bind(this), this.eventBus, this.sensors.process);
+    await this.sensors.openCode.start();
+
+    
+    // Transparent proxy - retry until Codex releases port 15721
+    (async () => {
+      let retries = 0;
+      const maxRetries = 30; // Retry for ~30 seconds
+      
+      while (retries < maxRetries) {
+        try {
+          this.codexProxy = new CodexProxy({
+            listenPort: 15721,
+            upstreamPort: 15722
+          });
+          await this.codexProxy.start();
+          this.sensors.codexProxy = this.codexProxy;
+
+          this.codexProxy.on("session", (session) => {
+            this.sessions.push({
+              id: session.id, agent: "openai-codex", type: session.type,
+              prompt: session.prompt, model: session.model,
+              timestamp: session.timestamp, status: "active"
+            });
+            if (this.sessions.length > 50) this.sessions.shift();
+            this.transport.sendSessionStart({
+              sessionId: session.id, agent: "openai-codex", type: session.type,
+              prompt: session.prompt, model: session.model,
+              timestamp: session.timestamp
+            });
+          });
+
+          this._addEvent("system", "info", "allow", "Codex proxy started on :15721 -> :15722");
+          break;
+        } catch (e) {
+          retries++;
+          if (retries === 1) {
+            this.logger.warn("Codex proxy waiting for port 15721 (retry " + retries + "/" + maxRetries + "): " + e.message);
+          }
+          if (retries >= maxRetries) {
+            this.logger.warn("Codex proxy failed after " + maxRetries + " retries: " + e.message);
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+    })();
+
+    this._recordAgentPrompt = (data, options = {}) => {
+      const result = this.sessionPolicyEngine.observePrompt(data, options);
+      const persist = () => {
+        this.sessions.push({ id: data.conversationId || data.sessionId, agent: data.agent || data.agentType || "codex", threadId: data.threadId, submissionId: data.submissionId, prompt: data.prompt, timestamp: data.timestamp, status: "active" });
+        if (this.sessions.length > 50) this.sessions.shift();
+        this.transport.sendSessionStart({ sessionId: data.conversationId || data.sessionId, agent: data.agent || data.agentType || "codex", threadId: data.threadId, submissionId: data.submissionId, prompt: data.prompt, timestamp: data.timestamp });
+      };
+      if (result && typeof result.then === "function") result.then(persist).catch(error => this.logger.warn("Agent prompt analysis failed: " + error.message));
+      else persist();
+    };
+
+    this.eventBus.on("codex:user_prompt", (data) => this._recordAgentPrompt(data));
+    this.eventBus.on("agent:user_prompt", (data) => this._recordAgentPrompt(data, { semantic: true }));
+
+    this.server = startApiServer({
+      policy: this.policy,
+      policyPath: POLICY_PATH,
+      events: this.events,
+      sessions: this.sessions,
+      db: this.db,
+      addEvent: this._addEvent.bind(this),
+      sensors: this.sensors,
+      transport: this.transport,
+      apiPort: this.apiPort,
+      handleEvent: this._handleEvent.bind(this),
+      ruleEngine: this.ruleEngine,
+      llmClassifier: this.llmClassifier,
+      localSemanticClassifier: this.localSemanticClassifier,
+      semanticClassifier: this.semanticClassifier,
+      enforcer: this.enforcer,
+      policyStore: this.policyStore,
+      getPolicyVerification: () => this.policyVerification,
+      sessionPolicyEngine: this.sessionPolicyEngine,
+      adapterRegistry: this.adapterRegistry,
+      getRuntimeHealth: () => this._getRuntimeHealth(),
+      onPolicyUpdate: (nextPolicy) => this._applyPolicy(nextPolicy),
+      onPolicyRollback: (revision) => this._rollbackPolicy(revision)
+    });
+
+    if (this.policy.serverUrl) {
+      this.transport.onPolicyUpdate = (np) => this._applyPolicy(np);
+      this.transport.onCommand = (msg) => { this._addEvent("system", "info", "allow", "Server cmd: " + msg.command); };
+      await this.transport.connect();
+    }
+    process.on("SIGINT", () => this.stop());
+    process.on("SIGTERM", () => this.stop());
+    this._addEvent("system", "info", "allow", "Agent started (" + Object.keys(this.sensors).length + " sensors)");
+  }
+
+  _getRuntimeHealth() {
+    const logPath = path.join(LOG_DIR, "aidr-events.jsonl");
+    let auditLog = { path: logPath, exists: false, bytes: 0, eventCount: 0 };
+    try {
+      const stat = fs.statSync(logPath);
+      auditLog = { ...auditLog, exists: true, bytes: stat.size, eventCount: this.events.length };
+    } catch (_) {}
+    const transport = this.transport.getStats?.() || {};
+    const serverConfigured = Boolean(this.policy.serverUrl);
+    const eventStore = { dbReady: Boolean(this.db), inMemoryCount: this.events.length, uniqueEventIds: this.eventIds.size, schemaVersion: 1 };
+    const status = !eventStore.dbReady ? "degraded" : (serverConfigured && !transport.connected && !transport.httpHealthy ? "degraded" : "healthy");
+    return { status, serverConfigured, transportMode: serverConfigured ? (transport.transportMode || (transport.connected ? "connected" : "buffering")) : "standalone", auditLog, eventStore, transport };
+  }
+
+  _applyPolicy(nextPolicy) {
+    const candidate = mergePolicy(this.policy, nextPolicy || {});
+    const signed = this.policyStore.save(candidate);
+    Object.keys(this.policy).forEach(key => delete this.policy[key]);
+    Object.assign(this.policy, signed);
+    this.policyVerification = this.policyStore.verifyActive();
+    this.ruleEngine.updatePolicy(this.policy);
+    this.enforcer.updatePolicy(this.policy);
+    this.sessionPolicyEngine.updatePolicy(this.policy);
+    this.llmClassifier.configure(this.policy.llmConfig || {});
+    this.localSemanticClassifier.configure(this.policy.localSemanticModel || {});
+    this.semanticClassifier.configure(this.policy.semanticRuntime || {});
+    this._reconcileSensors();
+    this._addEvent("system", "info", "allow", "Policy updated and activated", {
+      mode: this.policy.mode,
+      version: this.policy.version
+    });
+    return this.policy;
+  }
+
+  _rollbackPolicy(revision) {
+    const restored = this.policyStore.rollback(revision);
+    Object.keys(this.policy).forEach(key => delete this.policy[key]);
+    Object.assign(this.policy, restored);
+    this.policyVerification = this.policyStore.verifyActive();
+    this.ruleEngine.updatePolicy(this.policy);
+    this.enforcer.updatePolicy(this.policy);
+    this.sessionPolicyEngine.updatePolicy(this.policy);
+    this.llmClassifier.configure(this.policy.llmConfig || {});
+    this.localSemanticClassifier.configure(this.policy.localSemanticModel || {});
+    this.semanticClassifier.configure(this.policy.semanticRuntime || {});
+    this._reconcileSensors();
+    this._addEvent("policy", "high", "block", `Policy rolled back to revision ${revision}`, {
+      revision, activeRevision: this.policy.policyMeta?.revision, verification: this.policyVerification
+    });
+    return this.policy;
+  }
+
+  async _reconcileSensors() {
+    const sensorPolicyNames = {
+      process: "process", file: "file", network: "network", registry: "registry",
+      shell: "shell", mcp: "mcp_gateway"
+    };
+    for (const [name, policyName] of Object.entries(sensorPolicyNames)) {
+      const sensor = this.sensors[name];
+      if (!sensor) continue;
+      const enabled = this.policy.sensors?.[policyName]?.enabled !== false;
+      try {
+        if (enabled && !sensor.active) await sensor.start();
+        if (!enabled && sensor.active) await sensor.stop();
+      } catch (error) {
+        this._addEvent("system", "medium", "alert", `传感器策略切换失败: ${name}`, { error: error.message });
+      }
+    }
+  }
+
+  async stop() {
+    for (const [name, sensor] of Object.entries(this.sensors)) { try { await sensor.stop(); } catch (_) {} }
+    try { await this.transport.stop(); } catch (_) {}
+    if (this.server) try { this.server.close(); } catch (_) {}
+    this._addEvent("system", "info", "allow", "Agent stopped");
+    this._saveDB();
+    process.exit(0);
+  }
+}
+
+if (require.main === module) { new AIDRAgent().start(); }
+module.exports = { AIDRAgent };
