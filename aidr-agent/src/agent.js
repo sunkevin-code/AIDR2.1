@@ -32,6 +32,8 @@ const POLICY_PATH = process.env.AIDR_POLICY_PATH || (process.env.AIDR_ENDPOINT_H
 const LOG_DIR = path.join(__dirname, "..", "logs");
 const SESSION_STATE_PATH = path.join(LOG_DIR, "session-policies.json");
 const TRANSPORT_OUTBOX_PATH = path.join(LOG_DIR, "transport-outbox.json");
+const MAX_EVENT_ROWS = 5000;
+const DB_SAVE_INTERVAL_MS = 5000;
 
 function ensureAgentPolicySchema(policy) {
   const next = policy || {};
@@ -101,6 +103,8 @@ class AIDRAgent {
     this.db = null;
     this.dbSaveTimer = null;
     this.dbDirty = false;
+    this.dbEventCount = 0;
+    this.dbPrunePending = false;
     this.apiPort = Number(process.env.AIDR_AGENT_PORT || this.policy.port || 8787);
     this.sessionId = null;
   }
@@ -141,7 +145,13 @@ class AIDRAgent {
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_time ON events(timestamp)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_verdict ON events(verdict)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_category ON events(category)");
-      if (recovered) this._recoverEventsFromLog(5000);
+      this.dbEventCount = Number(this.db.exec("SELECT COUNT(*) FROM events")[0]?.values?.[0]?.[0] || 0);
+      this._pruneDB(true);
+      if (recovered) {
+        this._recoverEventsFromLog(MAX_EVENT_ROWS);
+        this.dbEventCount = Number(this.db.exec("SELECT COUNT(*) FROM events")[0]?.values?.[0]?.[0] || 0);
+        this._pruneDB(true);
+      }
       this._saveDB();
     } catch (e) { this.logger.warn("DB init failed: " + e.message); }
   }
@@ -195,7 +205,21 @@ class AIDRAgent {
     } catch (_) {}
   }
 
-  _scheduleDBSave(delayMs = 1500) {
+  _pruneDB(force = false) {
+    if (!this.db || this.dbPrunePending) return;
+    if (!force && this.dbEventCount <= MAX_EVENT_ROWS) return;
+    this.dbPrunePending = true;
+    try {
+      this.db.run("DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)", [MAX_EVENT_ROWS]);
+      this.dbEventCount = Math.min(this.dbEventCount, MAX_EVENT_ROWS);
+    } catch (_) {
+      // Retention is best effort; never take the live agent down.
+    } finally {
+      this.dbPrunePending = false;
+    }
+  }
+
+  _scheduleDBSave(delayMs = DB_SAVE_INTERVAL_MS) {
     if (!this.db || this.dbSaveTimer) {
       if (this.db) this.dbDirty = true;
       return;
@@ -220,7 +244,7 @@ class AIDRAgent {
     }
     this.logger.log(verdict, severity, category, summary, detail, { eventId: event.eventId, schemaVersion: event.schemaVersion, timestamp: event.timestamp, sessionId: event.sessionId, agentId: event.agentId, matchedRule: event.matchedRule });
     if (this.db) {
-      try { this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,matched_rule) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [event.eventId, event.schemaVersion, event.timestamp, category, severity, verdict, summary, JSON.stringify(detail), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId, event.matchedRule]); this._scheduleDBSave(); } catch (_) {}
+      try { this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,matched_rule) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [event.eventId, event.schemaVersion, event.timestamp, category, severity, verdict, summary, JSON.stringify(detail), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId, event.matchedRule]); this.dbEventCount += 1; this._pruneDB(); this._scheduleDBSave(); } catch (_) {}
     }
     this.transport.sendEvent(event);
     this.eventBus.publish("event", event);
