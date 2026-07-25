@@ -10,7 +10,10 @@ class NetworkSensor {
     this.active = false;
     this.interval = null;
     this.polling = false;
-    this.stats = { connectionsDetected: 0, suspicious: 0 };
+    this.alertCache = new Map();
+    this.alertWindowStartedAt = 0;
+    this.alertsInWindow = 0;
+    this.stats = { connectionsDetected: 0, suspicious: 0, suppressed: 0 };
   }
 
   async start() {
@@ -42,6 +45,18 @@ class NetworkSensor {
       if (!Array.isArray(connections)) connections = [connections];
       const suspiciousPorts = [22, 3389, 5900, 5985, 5986];
       const allowedIps = new Set(["127.0.0.1", "::1", "0.0.0.0"]);
+      const dedupWindowMs = Math.max(5000, Number(this.policy.sensors?.network?.dedupWindowMs) || 30000);
+      const maxAlertsPerPoll = Math.max(1, Number(this.policy.sensors?.network?.maxAlertsPerPoll) || 20);
+      const maxAlertsPerWindow = Math.max(maxAlertsPerPoll, Number(this.policy.sensors?.network?.maxAlertsPerWindow) || 20);
+      const now = Date.now();
+      let emittedThisPoll = 0;
+      if (now - this.alertWindowStartedAt >= dedupWindowMs) {
+        this.alertWindowStartedAt = now;
+        this.alertsInWindow = 0;
+      }
+      for (const [key, timestamp] of this.alertCache) {
+        if (now - timestamp > dedupWindowMs) this.alertCache.delete(key);
+      }
       for (const conn of connections) {
         this.stats.connectionsDetected++;
         const remoteAddr = conn.RemoteAddress || "";
@@ -51,6 +66,15 @@ class NetworkSensor {
         if (!isSuspicious) continue;
         this.stats.suspicious++;
         const detail = { localAddress: conn.LocalAddress, remoteAddress: remoteAddr, remotePort: port, owningProcess: conn.OwningProcess };
+        const fingerprint = [remoteAddr, port, conn.OwningProcess || "unknown"].join(":");
+        const lastAlertAt = this.alertCache.get(fingerprint) || 0;
+        if (now - lastAlertAt < dedupWindowMs || emittedThisPoll >= maxAlertsPerPoll || this.alertsInWindow >= maxAlertsPerWindow) {
+          this.stats.suppressed++;
+          continue;
+        }
+        this.alertCache.set(fingerprint, now);
+        emittedThisPoll++;
+        this.alertsInWindow++;
         const blockedPorts = this.policy.sessionPolicy?.blockedNetworkPorts || [22, 3389, 5900, 5985, 5986];
         const blockedIps = this.policy.sessionPolicy?.blockedNetworkIps || [];
         const shouldBlock = this.policy.mode === "enforce" && (blockedPorts.includes(Number(port)) || blockedIps.includes(remoteAddr));

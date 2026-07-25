@@ -1,12 +1,117 @@
 const crypto = require("crypto");
 const http = require("http");
+const { normalizeEvent, validateEvent } = require("../observability/eventSchema");
+const { validateDecisionContract } = require("../engine/decisionContract");
+const { buildIntentEvidence } = require("../engine/intentEvidence");
+const { buildCatalog, enrichEvent, aggregateEvents, getOrganizationBoundary, deriveTaskLevels, constrainTaskBoundary } = require("../engine/behaviorAtoms");
+const { buildOrbitGraph } = require("../engine/behaviorAtomSchema");
 
 function startApiServer({
   policy, events, db, addEvent, sensors, transport, apiPort, handleEvent,
   ruleEngine, llmClassifier, localSemanticClassifier, semanticClassifier, enforcer, policyStore, getPolicyVerification,
-  sessionPolicyEngine, adapterRegistry, getRuntimeHealth, onPolicyUpdate, onPolicyRollback
+  sessionPolicyEngine, adapterRegistry, auditLedger, semanticFeedback, getRuntimeHealth, onPolicyUpdate, onPolicyRollback
 }) {
   const localToken = process.env.AIDR_LOCAL_TOKEN || "";
+  const behaviorViewCache = new Map();
+  const behaviorCacheTtlMs = 15000;
+  const behaviorMetrics = {
+    cacheHits: 0,
+    cacheMisses: 0,
+    lastDurationMs: 0,
+    lastSourceCount: 0,
+    lastGeneratedAt: null,
+    lastWindowHours: null,
+    lastAgentId: null
+  };
+
+  function behaviorDataSignature() {
+    if (db) {
+      try {
+        const row = queryOne("SELECT COUNT(*) AS count, MAX(timestamp) AS latest FROM events") || {};
+        return String(row.count || 0) + ":" + String(row.latest || "");
+      } catch (_) {}
+    }
+    const latest = events[events.length - 1];
+    return String(events.length) + ":" + String(latest?.timestamp || latest?.time || "");
+  }
+
+  function trimBehaviorAgents(agents, pathLimit) {
+    return (agents || []).map(agent => ({
+      ...agent,
+      pathTotal: Array.isArray(agent.path) ? agent.path.length : 0,
+      path: Array.isArray(agent.path) && agent.path.length > pathLimit ? agent.path.slice(-pathLimit) : (agent.path || [])
+    }));
+  }
+
+  function trimOccurrences(occurrences, limit) {
+    return Array.isArray(occurrences) && occurrences.length > limit ? occurrences.slice(-limit) : (occurrences || []);
+  }
+
+  function buildPredictedPath(session) {
+    const intent = session?.intent || {};
+    const capabilities = intent.requiredCapabilities || intent.capabilities || {};
+    const path = [];
+    const push = (atomId, reason) => path.push({ atomId, state: "predicted", source: "intent", reason, sequence: path.length + 1 });
+    if (session?.prompt || intent.summary) push("INTENT.INTERPRET", "任务目标与约束解析");
+    if (session?.prompt || intent.summary) push("PLAN.CREATE", "根据意图生成最小执行计划");
+    const capabilityAtoms = {
+      fileRead: ["DATA.DATA_READ", "读取任务所需工作区数据"],
+      fileWrite: ["DATA.DATA_WRITE", "写入任务明确要求的输出"],
+      shell: ["EXEC.CODE_EXECUTE", "执行任务声明的代码或命令"],
+      network: ["EXEC.SYSTEM_CALL", "访问任务允许的网络资源"],
+      mcpRead: ["TOOL.INVOKE", "调用只读工具或 MCP"],
+      mcpWrite: ["TOOL.INVOKE", "调用具有写入副作用的工具或 MCP"]
+    };
+    Object.keys(capabilityAtoms).forEach(name => {
+      if (capabilities[name] === true) push(capabilityAtoms[name][0], capabilityAtoms[name][1]);
+    });
+    if (path.length) push("PLAN.COMPLETE", "任务达到完成条件后结束");
+    return path;
+  }
+
+  function behaviorEvents(cutoffIso = null) {
+    if (db) {
+      try {
+        const rows = cutoffIso
+          ? queryAll("SELECT * FROM events WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?", [cutoffIso, 5000])
+          : queryAll("SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", [5000]);
+        if (rows.length) return rows.map(parseEventRow);
+      } catch (_) {}
+    }
+    return events.slice();
+  }
+
+  function behaviorView(agentId = "", windowHours = 24) {
+    const normalizedWindow = Math.max(1, Number(windowHours || 24));
+    const cacheKey = String(agentId || "") + ":" + normalizedWindow + ":" + String(policy.version || policy.revision || "") + ":" + behaviorDataSignature();
+    const cached = behaviorViewCache.get(cacheKey);
+    if (cached && Date.now() - cached.createdAt < behaviorCacheTtlMs) {
+      behaviorMetrics.cacheHits++;
+      return cached.value;
+    }
+    behaviorMetrics.cacheMisses++;
+    const startedAt = Date.now();
+    const cutoff = Date.now() - normalizedWindow * 3600000;
+    const discovery = sensors.process?.getAgentDiscoveryStatus?.() || {};
+    const sessionMap = new Map((sessionPolicyEngine?.getSessions?.(false) || []).map(session => [String(session.id), session]));
+    const source = behaviorEvents(new Date(cutoff).toISOString()).filter(event => {
+      const timestamp = new Date(event.timestamp || event.time || 0).getTime();
+      const eventAgentId = String(event.agentId || event.agent || event.detail?.agentId || "");
+      return (!agentId || eventAgentId === String(agentId)) && (!timestamp || timestamp >= cutoff);
+    }).map(event => enrichEvent(event, policy, sessionMap.get(String(event.sessionId || "")) || event.session || {}));
+    const value = { source, aggregate: aggregateEvents(source, policy, event => sessionMap.get(String(event.sessionId || "")) || event.session || {}), discovery, generatedAt: new Date().toISOString() };
+    behaviorMetrics.lastDurationMs = Date.now() - startedAt;
+    behaviorMetrics.lastSourceCount = source.length;
+    behaviorMetrics.lastGeneratedAt = value.generatedAt;
+    behaviorMetrics.lastWindowHours = normalizedWindow;
+    behaviorMetrics.lastAgentId = agentId || null;
+    behaviorViewCache.set(cacheKey, { createdAt: Date.now(), value });
+    if (behaviorViewCache.size > 12) {
+      const oldest = behaviorViewCache.keys().next().value;
+      if (oldest) behaviorViewCache.delete(oldest);
+    }
+    return value;
+  }
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://127.0.0.1:${apiPort}`);
@@ -26,7 +131,32 @@ function startApiServer({
   });
 
   async function route(req, url) {
-    const pathname = url.pathname;
+    const rawPathname = url.pathname;
+    const pathname = rawPathname.replace(/^\/v1(?=\/|$)/, "/api");
+
+    if (pathname === "/api/ui/contract" && req.method === "GET") {
+      return ok({
+        schemaVersion: "aidr-ui-contract-v1",
+        renderer: "canonical-view-registry",
+        activeShell: "aidr-control-plane",
+        views: [
+          { id: "overview", label: "安全概述", owner: "posture", primaryData: ["agents", "events", "risk", "decisions"] },
+          { id: "sessions", label: "意图分析", owner: "session-intent", primaryData: ["prompts", "decisionTrace", "policy", "drift"] },
+          { id: "agents", label: "Agent发现", owner: "discovery", primaryData: ["identity", "process", "tools", "coverage"] },
+          { id: "policy", label: "策略中心", owner: "policy", primaryData: ["rules", "signedVersions", "simulation", "approval"] },
+          { id: "events", label: "行为监控", owner: "behavior", primaryData: ["eventWindow", "matrix", "patterns", "enforcement"] },
+          { id: "semantic", label: "语义模型", owner: "semantic", primaryData: ["local", "external", "runtime", "template", "feedback"] },
+          { id: "system", label: "系统", owner: "endpoint", primaryData: ["service", "hooks", "enforcement", "health"] }
+        ],
+        invariants: [
+          "one_renderer_per_view",
+          "one_page_title_per_view",
+          "all_mutations_require_ui_token",
+          "decision_trace_must_include_contract",
+          "empty_state_must_include_data_status"
+        ]
+      });
+    }
 
     if (pathname === "/api/status" && req.method === "GET") {
       const stats = { allow: 0, alert: 0, block: 0 };
@@ -54,6 +184,25 @@ function startApiServer({
         enforcer: enforcer?.getStats() || {},
         policyVerification: getPolicyVerification?.() || policyStore?.verifyActive?.() || { status: "unknown" },
         events: events.slice(-30).reverse()
+      });
+    }
+
+    if (pathname === "/api/diagnostics/performance" && req.method === "GET") {
+      const total = behaviorMetrics.cacheHits + behaviorMetrics.cacheMisses;
+      return ok({
+        schemaVersion: "aidr-performance-v1",
+        behaviorView: {
+          ...behaviorMetrics,
+          cacheEntries: behaviorViewCache.size,
+          cacheTtlMs: behaviorCacheTtlMs,
+          cacheHitRate: total ? Number((behaviorMetrics.cacheHits / total).toFixed(4)) : 0
+        },
+        process: {
+          uptimeSeconds: Math.round(process.uptime()),
+          rssBytes: process.memoryUsage().rss,
+          heapUsedBytes: process.memoryUsage().heapUsed
+        },
+        generatedAt: new Date().toISOString()
       });
     }
 
@@ -98,6 +247,33 @@ function startApiServer({
     }
     if (pathname === "/api/semantic/providers" && req.method === "GET") {
       return ok({ providers: llmClassifier?.getProviderCatalog?.() || [] });
+    }
+
+    if (pathname === "/api/semantic/feedback/stats" && req.method === "GET") {
+      return ok({ stats: semanticFeedback?.getStats?.() || { status: "unavailable" } });
+    }
+
+    if (pathname === "/api/semantic/feedback" && req.method === "GET") {
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 100);
+      return ok({ stats: semanticFeedback?.getStats?.() || { status: "unavailable" }, feedback: semanticFeedback?.getRecent?.(limit) || [] });
+    }
+
+    if (pathname === "/api/semantic/feedback" && req.method === "POST") {
+      if (!semanticFeedback) return serviceUnavailable("semantic_feedback_unavailable");
+      const body = await readBody(req);
+      try {
+        const feedback = semanticFeedback.record(body || {});
+        addEvent("semantic_feedback", "info", "allow", "Semantic analysis feedback recorded", {
+          feedbackId: feedback.feedbackId,
+          sessionId: feedback.sessionId,
+          agentId: feedback.agentId,
+          source: feedback.prediction.source,
+          correct: feedback.label.correct
+        }, { sessionId: feedback.sessionId, agentId: feedback.agentId });
+        return ok({ ok: true, feedback, stats: semanticFeedback.getStats() });
+      } catch (error) {
+        return badRequest(error.message || "invalid_semantic_feedback");
+      }
     }
 
     if (pathname === "/api/semantic/key" && req.method === "PUT") {
@@ -171,6 +347,136 @@ function startApiServer({
       });
     }
 
+    if (pathname === "/api/behavior-atoms" && req.method === "GET") {
+      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 160);
+      const occurrenceLimit = clampInt(url.searchParams.get("occurrenceLimit"), 1, 1000, 200);
+      const view = behaviorView(url.searchParams.get("agentId") || "", clampInt(url.searchParams.get("windowHours"), 1, 720, 24));
+      const statsById = new Map(view.aggregate.atoms.map(item => [item.atomId, item]));
+      const catalog = buildCatalog(policy).map(atom => ({ ...atom, stats: statsById.get(atom.id) || { atomId: atom.id, hits: 0, allow: 0, alert: 0, block: 0, agents: [], sessions: [], outOfOrganization: 0, outOfTask: 0 } }));
+      const agents = trimBehaviorAgents(view.aggregate.agents, pathLimit);
+      return ok({
+        catalog,
+        stats: view.aggregate.atoms,
+        agents,
+        occurrences: trimOccurrences(view.aggregate.occurrences, occurrenceLimit),
+        totalOccurrences: view.aggregate.occurrences.length,
+        unattributed: agents.filter(item => item.agentId === "unknown"),
+        boundary: getOrganizationBoundary(policy),
+        windowHours: clampInt(url.searchParams.get("windowHours"), 1, 720, 24),
+        generatedAt: view.generatedAt,
+        schemaVersion: "aidr-behavior-atom-v1",
+        contractVersion: "2026-07"
+      });
+    }
+
+    if (pathname === "/api/behavior-atoms" && req.method === "POST") {
+      const body = await readBody(req);
+      const id = String(body.id || "").trim().toUpperCase();
+      if (!/^[A-Z][A-Z0-9_-]*\.[A-Z][A-Z0-9_-]*$/.test(id)) return badRequest("behavior_atom_id_invalid");
+      const existing = buildCatalog(policy).find(item => item.id === id);
+      if (existing?.system) return { status: 409, body: { error: "system_atom_exists" } };
+      const current = policy.behaviorAtoms || {};
+      const next = { ...current, custom: { ...(current.custom || {}), [id]: { description: body.description || "自定义行为原子", baseLevel: Math.max(0, Math.min(5, Number(body.baseLevel ?? 2))), enabled: body.enabled !== false, system: false } } };
+      const updated = onPolicyUpdate ? onPolicyUpdate({ behaviorAtoms: next }) : Object.assign(policy, { behaviorAtoms: next });
+      return ok({ ok: true, atom: buildCatalog(updated).find(item => item.id === id) || null });
+    }
+
+    if (pathname === "/api/behavior-atoms/stats" && req.method === "GET") {
+      const view = behaviorView(url.searchParams.get("agentId") || "", clampInt(url.searchParams.get("windowHours"), 1, 720, 24));
+      return ok({ stats: view.aggregate.atoms, agents: view.aggregate.agents, total: view.source.length });
+    }
+
+    const behaviorAtomMatch = pathname.match(/^\/api\/behavior-atoms\/([^/]+)$/);
+    if (behaviorAtomMatch && req.method === "PUT") {
+      const id = decodeURIComponent(behaviorAtomMatch[1]).toUpperCase();
+      const body = await readBody(req);
+      const next = { ...(policy.behaviorAtoms || {}), custom: { ...((policy.behaviorAtoms || {}).custom || {}), [id]: { ...(body || {}) } } };
+      const updated = onPolicyUpdate ? onPolicyUpdate({ behaviorAtoms: next }) : Object.assign(policy, { behaviorAtoms: next });
+      return ok({ ok: true, atom: buildCatalog(updated).find(item => item.id === id) || null, policy: redactPolicy(updated) });
+    }
+
+    if (behaviorAtomMatch && req.method === "DELETE") {
+      const id = decodeURIComponent(behaviorAtomMatch[1]).toUpperCase();
+      const catalogItem = buildCatalog(policy).find(item => item.id === id);
+      const stat = behaviorView().aggregate.atoms.find(item => item.atomId === id);
+      if (catalogItem?.system && Number(stat?.hits || 0) > 0) return { status: 409, body: { error: "system_atom_with_history_must_be_archived" } };
+      const current = policy.behaviorAtoms || {};
+      const custom = { ...(current.custom || {}) };
+      delete custom[id];
+      const disabled = Array.from(new Set([...(current.disabled || []), ...(catalogItem?.system ? [id] : [])]));
+      const next = { ...current, custom, disabled };
+      const updated = onPolicyUpdate ? onPolicyUpdate({ behaviorAtoms: next }) : Object.assign(policy, { behaviorAtoms: next });
+      return ok({ ok: true, atomId: id, policy: redactPolicy(updated) });
+    }
+
+    const agentOrbitMatch = pathname.match(/^\/api\/agents\/([^/]+)\/behavior-orbit$/);
+    if (agentOrbitMatch && req.method === "GET") {
+      const agentId = decodeURIComponent(agentOrbitMatch[1]);
+      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 160);
+      const eventLimit = clampInt(url.searchParams.get("eventLimit"), 1, 1000, 200);
+      const view = behaviorView(agentId, clampInt(url.searchParams.get("windowHours"), 1, 720, 24));
+      const fullAgent = view.aggregate.agents.find(item => item.agentId === agentId) || { agentId, total: 0, path: [], atoms: {}, outOfOrganization: 0, outOfTask: 0 };
+      const agent = trimBehaviorAgents([fullAgent], pathLimit)[0];
+      const requestPath = (agent.path || []).filter(item => item.boundaryScope && item.boundaryScope !== "within");
+      const orbit = buildOrbitGraph({
+        agentId,
+        organizationBoundary: getOrganizationBoundary(policy),
+        actualPath: agent.path || [],
+        requestPath,
+        events: view.source.slice(0, eventLimit)
+      });
+      return ok({ agentId, windowHours: clampInt(url.searchParams.get("windowHours"), 1, 720, 24), boundary: getOrganizationBoundary(policy), ...agent, requestPath, events: view.source.slice(0, eventLimit), totalEvents: view.source.length, orbit, schemaVersion: "aidr-orbit-v1", contractVersion: "2026-07" });
+    }
+
+    if (pathname === "/api/orbits" && req.method === "GET") {
+      const scope = String(url.searchParams.get("scope") || "behavior").toLowerCase();
+      const agentId = url.searchParams.get("agentId") || "";
+      const windowHours = clampInt(url.searchParams.get("windowHours"), 1, 720, 24);
+      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 160);
+      const occurrenceLimit = clampInt(url.searchParams.get("occurrenceLimit"), 1, 1000, 200);
+      const eventLimit = clampInt(url.searchParams.get("eventLimit"), 1, 1000, 200);
+      const view = behaviorView(agentId, windowHours);
+      const fullActualPath = agentId
+        ? (view.aggregate.agents.find(item => String(item.agentId) === String(agentId))?.path || [])
+        : view.aggregate.agents.flatMap(item => item.path || []).sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0));
+      const actualPath = fullActualPath.length > pathLimit ? fullActualPath.slice(-pathLimit) : fullActualPath;
+      const requestPath = actualPath.filter(item => item.boundaryScope && item.boundaryScope !== "within");
+      const orbit = buildOrbitGraph({
+        agentId: agentId || null,
+        organizationBoundary: getOrganizationBoundary(policy),
+        actualPath,
+        requestPath,
+        events: view.source.slice(0, eventLimit)
+      });
+      return ok({ scope, agentId: agentId || null, windowHours, boundary: getOrganizationBoundary(policy), agents: trimBehaviorAgents(view.aggregate.agents, pathLimit), occurrences: trimOccurrences(view.aggregate.occurrences, occurrenceLimit), totalOccurrences: view.aggregate.occurrences.length, requestPath, events: view.source.slice(0, eventLimit), totalEvents: view.source.length, orbit, schemaVersion: "aidr-orbit-v1", contractVersion: "2026-07" });
+    }
+
+  if (pathname === "/api/events/validate" && req.method === "POST") {
+      const body = await readBody(req);
+      const event = normalizeEvent(body || {}, { source: "api_validation" });
+      const validation = validateEvent(event);
+      return ok({ event, validation, valid: validation.valid, errors: validation.errors });
+    }
+
+    if (pathname === "/api/audit/status" && req.method === "GET") {
+      return ok(auditLedger?.getStatus?.() || { valid: false, status: "unavailable" });
+    }
+
+    if (pathname === "/api/audit/verify" && req.method === "GET") {
+      return ok(auditLedger?.verify?.() || { valid: false, status: "unavailable" });
+    }
+
+    if (pathname === "/api/audit/export" && req.method === "GET") {
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 100);
+      return ok({ ledger: auditLedger?.getStatus?.() || { valid: false, status: "unavailable" }, records: auditLedger?.export?.(limit) || [] });
+    }
+
+    if (pathname === "/api/decision/validate" && req.method === "POST") {
+      const body = await readBody(req);
+      const validation = validateDecisionContract(body?.contract || body || {});
+      return ok({ validation, valid: validation.valid, errors: validation.errors });
+    }
+
     if (pathname === "/api/sensors" && req.method === "GET") {
       const info = {};
       for (const [name, sensor] of Object.entries(sensors)) info[name] = { active: sensor.active, stats: sensor.getStats?.() || {} };
@@ -199,12 +505,29 @@ function startApiServer({
 
     if (pathname === "/api/agents" && req.method === "GET") {
       const processSensor = sensors.process;
-      return ok({ agents: processSensor?.getAgentIdentities?.() || [], catalog: processSensor?.getAgentCatalog?.() || [], ...(processSensor?.getAgentDiscoveryStatus?.() || {}) });
+      const discovery = processSensor?.getAgentDiscoveryStatus?.() || {};
+      const catalog = processSensor?.getAgentCatalog?.() || [];
+      return ok({
+        ...discovery,
+        agents: processSensor?.getAgentIdentities?.() || [],
+        catalog,
+        contractVersion: "2026-07",
+        recognition: {
+          strategy: "multi-signal",
+          evidence: ["process_name", "command_line", "extension_marker", "config_path"],
+          supportedProfiles: catalog.length,
+          redaction: "command_line_secrets_redacted"
+        }
+      });
     }
 
     if (pathname === "/api/sessions" && req.method === "GET") {
-      const includeActions = url.searchParams.get("includeActions") === "1";
-      return ok({ sessions: sessionPolicyEngine?.getSessions(includeActions) || [] });
+      const compact = url.searchParams.get("compact") === "1";
+      const includeActions = !compact && url.searchParams.get("includeActions") === "1";
+      const limit = clampInt(url.searchParams.get("limit"), 1, 100, 40);
+      const offset = clampInt(url.searchParams.get("offset"), 0, 100000, 0);
+      const allSessions = sessionPolicyEngine?.getSessions(includeActions, compact) || [];
+      return ok({ sessions: allSessions.slice(offset, offset + limit), total: allSessions.length, limit, offset, compact });
     }
 
     const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
@@ -220,6 +543,69 @@ function startApiServer({
         ? sessionPolicyEngine?.getContextGraph?.(sessionId)
         : sessionPolicyEngine?.getGraph(sessionId);
       return graph ? ok(graph) : notFound("session_not_found");
+    }
+
+    const orbitMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/orbit$/);
+    if (orbitMatch && req.method === "GET") {
+      const sessionId = decodeURIComponent(orbitMatch[1]);
+      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 500);
+      const eventLimit = clampInt(url.searchParams.get("eventLimit"), 1, 1000, 500);
+      const session = sessionPolicyEngine?.getSession?.(sessionId);
+      if (!session) return notFound("session_not_found");
+      let sessionEvents = behaviorEvents().filter(event => String(event.sessionId || "") === sessionId);
+      if (!sessionEvents.length) sessionEvents = (session.actions || []).map(action => ({ ...action, category: action.event || "system", summary: action.summary, detail: action.detail || {}, sessionId, agentId: session.agent, timestamp: action.timestamp, verdict: action.verdict }));
+      sessionEvents = sessionEvents.sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || ""))).map(event => enrichEvent(event, policy, session));
+      const aggregate = aggregateEvents(sessionEvents, policy, () => session);
+      const fullActualPath = aggregate.agents.find(item => String(item.agentId) === String(session.agent))?.path || aggregate.agents[0]?.path || [];
+      const actualPath = fullActualPath.length > pathLimit ? fullActualPath.slice(-pathLimit) : fullActualPath;
+      const predictedPath = buildPredictedPath(session);
+      const requestPath = actualPath.filter(event => event.boundaryScope !== "within");
+      const effectivePolicy = session.effectivePolicy || {};
+      const taskBoundary = constrainTaskBoundary({
+        ...effectivePolicy,
+        maxLevel: Number.isFinite(Number(effectivePolicy.maxLevel)) ? Number(effectivePolicy.maxLevel) : 3,
+        levels: effectivePolicy.levels || effectivePolicy.domainLevels || deriveTaskLevels(effectivePolicy, 3),
+        source: "session.taskBoundary"
+      }, getOrganizationBoundary(policy));
+      const orbit = buildOrbitGraph({
+        sessionId,
+        agentId: session.agent,
+        organizationBoundary: getOrganizationBoundary(policy),
+        taskBoundary,
+        predictedPath,
+        actualPath,
+        requestPath,
+        decisionTrace: session.decisionTrace || null,
+        events: sessionEvents.slice(-eventLimit)
+      });
+      const intentEvidence = session.intent?.intentEvidence
+        || session.decisionTrace?.decisionContract?.intent?.evidence
+        || (session.intent ? buildIntentEvidence({
+          prompt: session.prompt || session.rawPrompt || "",
+          input: { cwd: session.cwd, agent: session.agent },
+          localIntent: session.intent,
+          semantic: session.semanticAnalysis || null,
+          finalIntent: session.intent
+        }) : null);
+      return ok({
+        sessionId,
+        agentId: session.agent,
+        organizationBoundary: getOrganizationBoundary(policy),
+        taskBoundary,
+        predictedPath,
+        actualPath,
+        actualPathTotal: fullActualPath.length,
+        requestPath,
+        events: sessionEvents.slice(-eventLimit),
+        totalEvents: sessionEvents.length,
+        intent: session.intent || null,
+        intentEvidence,
+        decisionTrace: session.decisionTrace || null,
+        aggregate,
+        orbit,
+        schemaVersion: "aidr-orbit-v1",
+        contractVersion: "2026-07"
+      });
     }
 
     const sessionPolicyMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/policy$/);
@@ -245,10 +631,32 @@ function startApiServer({
       if (!sessionPolicyEngine) return serviceUnavailable("session_policy_engine_unavailable");
       let body = await readBody(req);
       if (!body || !body.agent) return badRequest("agent_required");
-      body = adapterRegistry?.normalize?.(body) || body;
+      const validation = adapterRegistry?.validate?.(body);
+      if (validation && !validation.valid) return { status: 400, body: { error: "invalid_agent_event", adapter: validation.adapter, fields: validation.errors } };
+      body = validation?.normalized || adapterRegistry?.normalize?.(body) || body;
       body.hook_event_name = body.hook_event_name || body.event || "UserPromptSubmit";
       const result = await sessionPolicyEngine.handleHook(body);
-      return ok(result);
+      const decisionTrace = result.session?.decisionTrace || null;
+      return ok({ ...result, decisionTrace, contract: decisionTrace?.decisionContract || null });
+    }
+    if (pathname === "/api/adapters/events" && req.method === "POST") {
+      if (!adapterRegistry) return serviceUnavailable("adapter_registry_unavailable");
+      const body = await readBody(req);
+      if (!body || !body.agent) return badRequest("agent_required");
+      const packet = adapterRegistry.dispatch(body);
+      const normalized = packet.payload;
+      if (normalized.hook_event_name === "AgentRegister") {
+        const identityEvent = addEvent("agent_identity", "info", "allow", `Agent registered: ${normalized.agent}`, {
+          agent: normalized.agent, adapter: packet.adapter, manifest: packet.manifest, source: normalized.source
+        }, { agentId: normalized.agent, source: normalized.source });
+        return ok({ ok: true, adapter: packet.adapter, manifest: packet.manifest, event: identityEvent, payload: normalized });
+      }
+      if (!sessionPolicyEngine) return serviceUnavailable("session_policy_engine_unavailable");
+      const validation = adapterRegistry.validate(normalized);
+      if (!validation.valid) return { status: 400, body: { error: "invalid_agent_event", adapter: validation.adapter, fields: validation.errors } };
+      const result = await sessionPolicyEngine.handleHook(validation.normalized);
+      const decisionTrace = result.session?.decisionTrace || null;
+      return ok({ ...result, decisionTrace, contract: decisionTrace?.decisionContract || null, adapter: packet.adapter, manifest: packet.manifest });
     }
     if (pathname === "/api/rules" && req.method === "GET") {
       return ok({ rules: ruleEngine?.getRules() || [], stats: ruleEngine?.getStats() || {} });
@@ -266,12 +674,17 @@ function startApiServer({
 
     if (pathname === "/api/intent/analyze" && req.method === "POST") {
       const body = await readBody(req);
-      const local = sessionPolicyEngine?.analyzePrompt(body.prompt || body.text || "", { cwd: body.cwd });
-      if (body.deep === true && llmClassifier) {
-        const deep = await llmClassifier.analyzePrompt(body.prompt || body.text || "");
-        return ok({ local, deep });
-      }
-      return ok({ local });
+      const prompt = body.prompt || body.text || "";
+      if (!sessionPolicyEngine?.analyzePromptDecision) return serviceUnavailable("intent_engine_unavailable");
+      const result = await sessionPolicyEngine.analyzePromptDecision(prompt, {
+        cwd: body.cwd,
+        agent: body.agent || body.agent_type,
+        sessionId: body.sessionId || body.session_id,
+        turnId: body.turnId || body.turn_id,
+        source: "intent_api"
+      });
+      const contract = result.decisionTrace?.decisionContract || null;
+      return ok({ ...result, contract, contractVersion: contract?.contractVersion || contract?.schemaVersion || null });
     }
 
     if (pathname === "/api/policy/templates" && req.method === "GET") {
@@ -397,8 +810,38 @@ function redactPolicy(policy) {
 }
 
 function parseEventRow(row) {
-  try { return { ...row, detail: row.detail ? JSON.parse(row.detail) : {} }; }
-  catch (_) { return { ...row, detail: {} }; }
+  let detail = {};
+  let evidence = [];
+  try { detail = row.detail ? JSON.parse(row.detail) : {}; } catch (_) {}
+  try { evidence = row.evidence ? JSON.parse(row.evidence) : (detail.evidence || []); } catch (_) { evidence = detail.evidence || []; }
+  return {
+    ...row,
+    eventId: row.event_id || row.eventId,
+    schemaVersion: Number(row.schema_version || row.schemaVersion || 1),
+    time: row.timestamp,
+    eventType: row.event_type || detail.eventType || row.category,
+    source: row.source || detail.source || "agent",
+    detail,
+    traceId: row.trace_id || detail.traceId || null,
+    parentEventId: row.parent_event_id || detail.parentEventId || null,
+    subject: row.subject || detail.subject || row.summary,
+    object: row.object || detail.object || null,
+    policyVersion: row.policy_version || detail.policyVersion || null,
+    evidence,
+    sessionId: row.session_id || row.sessionId || detail.sessionId || null,
+    agentId: row.agent_id || row.agentId || detail.agentId || detail.agent || null,
+    matchedRule: row.matched_rule || row.matchedRule || detail.matchedRule || null
+    ,atomId: row.atom_id || row.atomId || detail.atomId || null,
+    atomDomain: row.atom_domain || row.atomDomain || detail.atomDomain || null,
+    atomConfidence: row.atom_confidence ?? row.atomConfidence ?? detail.atomConfidence ?? null,
+    atomBaseLevel: row.atom_base_level ?? row.atomBaseLevel ?? detail.atomBaseLevel ?? null,
+    mappingRule: row.mapping_rule || row.mappingRule || detail.mappingRule || null,
+    boundaryScope: row.boundary_scope || row.boundaryScope || detail.boundaryScope || null,
+    requiredLevel: row.required_level ?? row.requiredLevel ?? detail.requiredLevel ?? null,
+    allowedLevel: row.allowed_level ?? row.allowedLevel ?? detail.allowedLevel ?? null,
+    organizationBoundaryVersion: row.organization_boundary_version || row.organizationBoundaryVersion || null,
+    enforcementColor: row.enforcement_color || row.enforcementColor || null
+  };
 }
 
 function clampInt(value, min, max, fallback) {
@@ -439,8 +882,13 @@ function readBody(req, maxBytes = 2 * 1024 * 1024) {
 }
 
 function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(body));
+  const payload = Buffer.from(JSON.stringify(body), "utf8");
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": payload.length,
+    "Connection": "close"
+  });
+  res.end(payload);
 }
 
 function ok(body) { return { status: 200, body }; }

@@ -42,6 +42,9 @@ const promptResult = engine.handleHook({
 assert.equal(promptResult.session.prompt, "Read and summarize README without using the shell.");
 assert.equal(promptResult.session.promptHistory.length, 1);
 assert.equal(promptResult.session.intent.analyzer, "aidr-local-intent-v1");
+assert.match(promptResult.session.intent.intentEvidence.promptSha256, /^[a-f0-9]{64}$/);
+assert.equal(promptResult.session.intent.intentEvidence.schemaVersion, "aidr-intent-evidence-v1");
+assert.equal(promptResult.session.decisionTrace.decisionContract.intent.evidence.schemaVersion, "aidr-intent-evidence-v1");
 assert.equal(promptResult.session.effectivePolicy.capabilities.shell, false);
 assert.equal(promptResult.session.decisionTrace.schemaVersion, "aidr-decision-trace-v2");
 assert.equal(promptResult.session.decisionTrace.sequence, 1);
@@ -63,6 +66,12 @@ assert.equal(shellDecision.session.decisionTrace.parentTraceId, promptResult.ses
 assert.equal(shellDecision.session.decisionTrace.sequence, 2);
 assert.equal(shellDecision.session.decisionTrace.operation, "tool");
 assert.equal(engine.getSession("read-only-session").actions[0].detail.decisionTrace.schemaVersion, "aidr-decision-trace-v2");
+const compactSessions = engine.getSessions(false, true);
+const compactReadOnly = compactSessions.find(session => session.id === "read-only-session");
+assert.ok(compactReadOnly);
+assert.equal(Object.prototype.hasOwnProperty.call(compactReadOnly, "rawPrompt"), false);
+assert.equal(Object.prototype.hasOwnProperty.call(compactReadOnly, "actions"), false);
+assert.equal(compactReadOnly.intent.intentEvidence.schemaVersion, "aidr-intent-evidence-v1");
 
 const exfiltrationDecision = engine.handleHook({
   hook_event_name: "PreToolUse",

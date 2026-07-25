@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="initial-scale=1">
+<title>AIDR Endpoint — 增强组件</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;color:#18212f;background:#f2f4f7;font-size:14px}
+*{box-sizing:border-box}body{margin:0;min-width:320px;background:#f2f4f7;padding:32px}
+button{font:inherit;border:1px solid #cbd2da;background:#fff;color:#243142;border-radius:6px;padding:8px 11px;cursor:pointer}
+button:hover{background:#f4f6f8}
+button.pri{background:#176f62;border-color:#176f62;color:#fff}
+h2{font-size:16px;margin:0}h3{font-size:14px;margin:0 0 12px;color:#243142}
+
+/* === 当前 AIDR 已有样式 === */
+.badge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:5px;font-size:12px;font-weight:600;background:#eef1f4;color:#495464}
+.badge.allow,.badge.low,.badge.active,.badge.allow-r{background:#e6f4ef;color:#237a66}
+.badge.alert,.badge.medium,.badge.alert-r{background:#fff2d8;color:#8b5400}
+.badge.block,.badge.high,.badge.critical,.badge.block-r{background:#fdebea;color:#b42318}
+.badge.model-r{background:#e6f4ef;color:#237a66}
+.badge.rules-r{background:#fff2d8;color:#8b5400}
+
+.code{font-family:Consolas,monospace;font-size:12px;background:#f6f8fa;border:1px solid #e0e5ea;border-radius:6px;padding:12px;white-space:pre-wrap;word-break:break-word}
+.muted{color:#687385}.good{color:#237a66}.warn{color:#a35b00}
+
+.section{margin-bottom:24px}.section-title{font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em}
+
+/* === 增强组件 1: Live Decision Stream === */
+.stream-card{background:#fff;border:1px solid #dfe3e8;border-radius:7px;overflow:hidden}
+.stream-head{padding:12px 15px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center}
+.stream-head h3{margin:0;font-size:13px}.stream-head .pill{font-size:10px;background:#e6f4ef;color:#237a66;border-radius:99px;padding:4px 8px}
+.stream-body{padding:8px 10px;max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.stream-item{display:grid;grid-template-columns:56px 48px 1fr;gap:8px;padding:7px 8px;border-radius:5px;font-size:12px;align-items:center;animation:slideIn .3s ease-out}
+.stream-item:hover{background:#f8f9fb}
+.stream-item .t{color:#84909c;font-size:11px}
+.stream-item .s{color:#2c4050;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stream-item.block{border-left:3px solid #b42318}
+.stream-item.alert{border-left:3px solid #c27300}
+.stream-item.allow{border-left:3px solid #2b9079}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}}
+
+/* === 增强组件 2: LLM Comparison === */
+.comp-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.comp-box{border:1px solid #dfe3e8;border-radius:7px;padding:14px;background:#fff;min-width:0}
+.comp-box.llm{border-color:#b7d4cb;background:#f5fbf9}
+.comp-box.rule{border-color:#dfe3e8}
+.comp-label{font-size:10px;font-weight:700;color:#687385;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.comp-score{font-size:28px;font-weight:700;line-height:1;margin-bottom:2px}
+.comp-bar{height:4px;border-radius:3px;background:#e7eaee;margin:8px 0;overflow:hidden}
+.comp-bar i{height:100%;display:block;border-radius:3px}
+.comp-detail{font-size:11px;color:#506174;line-height:1.55}
+.comp-detail strong{color:#2c4050}
+.comp-items{display:grid;gap:4px;margin-top:6px}
+.comp-item{display:flex;justify-content:space-between;font-size:11px;padding:4px 0;border-bottom:1px solid #edf0f2}
+.comp-item:last-child{border-bottom:0}
+
+/* === 增强组件 3: Policy Matrix === */
+.pm-table{width:100%;border-collapse:collapse;font-size:12px}
+.pm-table th,.pm-table td{padding:9px 10px;text-align:center;border-bottom:1px solid #e7eaee}
+.pm-table th{background:#fafbfc;color:#687385;font-size:10px;font-weight:600;text-transform:uppercase}
+.pm-table td:first-child,.pm-table th:first-child{text-align:left;font-weight:500}
+.pm-table tr:last-child td{border-bottom:0}
+.pm-table .ck{color:#237a66}.pm-table .bl{color:#b42318}.pm-table .ap{color:#a35b00}
+.pm-table tr.final td{font-weight:600;background:#f4f8f7}
+
+/* === 增强组件 4: Agent Behavior Radar === */
+.agent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.agent-c{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:14px}
+.agent-h{display:flex;justify-content:space-between;align-items:start;margin-bottom:8px}
+.agent-n{font-size:12px;font-weight:700}
+.agent-m{font-size:10px;color:#687385;margin-top:2px}
+.agent-badge{font-size:10px;padding:3px 7px;border-radius:4px;font-weight:600}
+.agent-bar{height:5px;background:#e7eaee;border-radius:3px;margin:8px 0;overflow:hidden}
+.agent-bar i{height:100%;display:block;border-radius:3px}
+.agent-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.agent-tag{border:1px solid #dfe3e8;border-radius:4px;padding:3px 6px;font-size:10px;color:#536273;background:#f8fafb}
+.agent-tag.on{background:#e6f4ef;border-color:#9accc2;color:#237a66}
+.agent-tag.off{background:#fdebea;border-color:#efb4b1;color:#b42318}
+.agent-foot{font-size:10px;color:#687385;margin-top:8px;padding-top:8px;border-top:1px solid #edf0f2}
+
+/* === 增强组件 5: MITRE Heatmap === */
+.mitre{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mitre-g{min-width:0}.mitre-g h4{font-size:9px;color:#687385;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px}
+.mitre-c{padding:6px;border-radius:4px;border:1px solid #dfe3e8;text-align:center;margin-bottom:3px;font-size:10px}
+.mitre-c .tid{color:#687385;font-size:9px}
+.mitre-c.cov{background:#e6f4ef;border-color:#9accc2}
+.mitre-c.part{background:#fff2d8;border-color:#efd59a}
+.mitre-c.none{background:#fff;border-color:#e7eaee}
+.mitre-c .pct{font-weight:600}
+
+@media(max-width:960px){.agent-grid{grid-template-columns:1fr 1fr}.comp-row{grid-template-columns:1fr}.mitre{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.agent-grid{grid-template-columns:1fr}}
+</style>
+</head><body>
+
+<div style="max-width:1400px;margin:0 auto">
+
+<h2 style="margin-bottom:6px">AIDR 增强组件预览</h2>
+<p style="color:#687385;font-size:12px;margin:0 0 20px">基于当前 <code>localhost:8791</code> 主题风格 · 直接从现有 <code>SessionPolicyEngine</code> / <code>EventBus</code> 数据源注入</p>
+
+<!-- 1. Live Decision Stream -->
+<div class="section">
+<div class="section-title">① 实时决策流 · EventBus → WebSocket 注入</div>
+<div class="stream-card">
+<div class="stream-head">
+<h3>🔴 实时决策流</h3>
+<div><span class="pill">4 new / 5s</span> <button style="font-size:11px;padding:4px 8px">暂停</button></div>
+</div>
+<div class="stream-body" id="stream">
+<div class="stream-item block"><span class="t">12:23:47</span><span class="badge block-r">BLOCK</span><span class="s">密钥外传阻断: .env → evil.example</span></div>
+<div class="stream-item alert"><span class="t">12:23:35</span><span class="badge alert-r">ALERT</span><span class="s">curl pastebin.com 不在域名白名单</span></div>
+<div class="stream-item allow"><span class="t">12:23:12</span><span class="badge allow-r">ALLOW</span><span class="s">ReadFile server.js (已授权路径)</span></div>
+<div class="stream-item alert"><span class="t">12:22:58</span><span class="badge alert-r">ALERT</span><span class="s">行为漂移: fileRead → shell+network (drift=25)</span></div>
+<div class="stream-item allow"><span class="t">12:22:40</span><span class="badge allow-r">ALLOW</span><span class="s">"修复 API 认证模块" · risk=medium(35)</span></div>
+</div>
+</div>
+</div>
+
+<!-- 2. LLM Comparison -->
+<div class="section">
+<div class="section-title">② 规则 vs LLM 对比 · <code>HybridSemanticClassifier</code> 输出</div>
+<div class="comp-row">
+<div class="comp-box rule">
+<div class="comp-label">⚙️ RuleEngine</div>
+<div class="comp-score" style="color:#a35b00">55</div>
+<div class="badge alert-r" style="font-size:10px">ALERT</div>
+<div class="comp-bar"><i style="width:55%;background:#a35b00"></i></div>
+<div class="comp-detail">
+<strong>检测项:</strong> security_kw + path_brand + url_shortener<br>
+<strong>触发规则:</strong> SECURITY_KEYWORDS, PATH_BRAND<br>
+<strong>决策:</strong> 中等风险, 需审批
+</div>
+</div>
+<div class="comp-box llm">
+<div class="comp-label">🧠 LLMClassifier <span style="font-size:9px;color:#687385">DeepSeek</span></div>
+<div class="comp-score" style="color:#b42318">89</div>
+<div class="badge block-r" style="font-size:10px">BLOCK</div>
+<div class="comp-bar"><i style="width:89%;background:#b42318"></i></div>
+<div class="comp-detail">
+<strong>语义理解:</strong> 完整攻击链: policy_override → cred_access → exfil<br>
+<strong>意图:</strong> data_exfiltration<br>
+<strong>推理:</strong> "试图绕过安全策略, 窃取 SSH 凭据并外传"<br>
+<strong>建议:</strong> 🚨 立即阻断
+</div>
+</div>
+</div>
+</div>
+
+<!-- 3. Policy Matrix -->
+<div class="section">
+<div class="section-title">③ 策略矩阵 · Policy Resolution 可视化</div>
+<div style="background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:14px">
+<table class="pm-table">
+<thead><tr><th style="min-width:80px">能力</th><th>🌐 Global</th><th>📁 Workspace</th><th>🤖 Agent</th><th>✅ 最终</th></tr></thead>
+<tbody>
+<tr><td>📄 File Read</td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td></tr>
+<tr><td>✏️ File Write</td><td><span class="ap">Alert</span></td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td></tr>
+<tr><td>💻 Shell</td><td><span class="ap">Alert</span></td><td><span class="ap">Alert</span></td><td><span class="bl">Block</span></td><td><span class="bl">Block</span></td></tr>
+<tr><td>🌐 Network</td><td><span class="ap">Alert</span></td><td><span class="ck">Allow</span></td><td><span class="bl">Block</span></td><td><span class="bl">Block</span></td></tr>
+<tr><td>🔌 MCP Read</td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td><td><span class="ck">Allow</span></td></tr>
+<tr class="final"><td>✏️ MCP Write</td><td><span class="ap">Alert</span></td><td><span class="ck">Allow</span></td><td><span class="bl">Block</span></td><td><span class="bl">Block</span></td></tr>
+</tbody>
+</table>
+<div style="margin-top:10px;font-size:11px;color:#687385;display:flex;gap:14px">
+<span><span style="color:#237a66">■</span> Allow</span>
+<span><span style="color:#a35b00">■</span> Alert / Approval</span>
+<span><span style="color:#b42318">■</span> Block (explicit deny 优先)</span>
+</div>
+</div>
+</div>
+
+<!-- 4. Agent Behavior Radar -->
+<div class="section">
+<div class="section-title">④ Agent 行为雷达 · <code>BehaviorDriftEngine</code> 基线偏离度</div>
+<div class="agent-grid">
+<div class="agent-c">
+<div class="agent-h">
+<div><div class="agent-n">codex-vm-01</div><div class="agent-m">Codex CLI · 2h13m</div></div>
+<span class="agent-badge" style="background:#e6f4ef;color:#237a66">96%</span>
+</div>
+<div class="agent-bar"><i style="width:96%;background:#237a66"></i></div>
+<div class="agent-tags">
+<span class="agent-tag on">fileRead</span><span class="agent-tag on">fileWrite</span>
+<span class="agent-tag" style="color:#a35b00">shell</span><span class="agent-tag on">network</span>
+<span class="agent-tag on">mcpRead</span><span class="agent-tag off">mcpWrite</span>
+</div>
+<div class="agent-foot">💬 "修复 API 认证模块" · ⚠ drift:2 ⛔ block:1</div>
+</div>
+<div class="agent-c">
+<div class="agent-h">
+<div><div class="agent-n">opencode-ws-01</div><div class="agent-m">OpenCode · 45m</div></div>
+<span class="agent-badge" style="background:#e6f4ef;color:#237a66">88%</span>
+</div>
+<div class="agent-bar"><i style="width:88%;background:#a35b00"></i></div>
+<div class="agent-tags">
+<span class="agent-tag on">fileRead</span><span class="agent-tag on">fileWrite</span>
+<span class="agent-tag off">shell</span><span class="agent-tag" style="color:#a35b00">network</span>
+<span class="agent-tag off">mcp</span>
+</div>
+<div class="agent-foot">💬 "部署到 staging" · ⚠ drift:1 ⛔ block:0</div>
+</div>
+<div class="agent-c">
+<div class="agent-h">
+<div><div class="agent-n">codex-vm-02</div><div class="agent-m">Codex CLI · 离线 3m</div></div>
+<span class="agent-badge" style="background:#fff2d8;color:#8b5400">72%</span>
+</div>
+<div class="agent-bar"><i style="width:72%;background:#b42318"></i></div>
+<div class="agent-tags">
+<span class="agent-tag on">fileRead</span><span class="agent-tag on">fileWrite</span>
+<span class="agent-tag" style="color:#a35b00">shell</span><span class="agent-tag off">network</span>
+</div>
+<div class="agent-foot">💬 已结束 "数据库迁移" · ⚠ drift:4 ⛔ block:2</div>
+</div>
+</div>
+</div>
+
+<!-- 5. MITRE Heatmap -->
+<div class="section">
+<div class="section-title">⑤ MITRE ATT&CK 覆盖 · <code>ThreatDetectionEngine</code> 检测能力映射</div>
+<div style="background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:14px">
+<div class="mitre">
+<div class="mitre-g"><h4>TA0001 初始访问</h4>
+<div class="mitre-c part"><span class="tid">T1190</span><br><span class="pct" style="color:#a35b00">30%</span></div>
+<div class="mitre-c cov"><span class="tid">T1078</span><br><span class="pct good">85%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0002 执行</h4>
+<div class="mitre-c cov"><span class="tid">T1059</span><br><span class="pct good">92%</span></div>
+<div class="mitre-c cov"><span class="tid">T1106</span><br><span class="pct good">80%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0003 持久化</h4>
+<div class="mitre-c none"><span class="tid">T1543</span><br><span class="pct">0%</span></div>
+<div class="mitre-c none"><span class="tid">T1547</span><br><span class="pct">0%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0006 凭据</h4>
+<div class="mitre-c cov"><span class="tid">T1552</span><br><span class="pct good">88%</span></div>
+<div class="mitre-c none"><span class="tid">T1555</span><br><span class="pct">0%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0005 防御绕过</h4>
+<div class="mitre-c part"><span class="tid">T1562</span><br><span class="pct" style="color:#a35b00">40%</span></div>
+<div class="mitre-c none"><span class="tid">T1070</span><br><span class="pct">0%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0040 影响</h4>
+<div class="mitre-c none"><span class="tid">T1485</span><br><span class="pct">0%</span></div>
+<div class="mitre-c none"><span class="tid">T1490</span><br><span class="pct">0%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0010 外泄</h4>
+<div class="mitre-c cov"><span class="tid">T1567</span><br><span class="pct good">85%</span></div>
+<div class="mitre-c cov"><span class="tid">T1041</span><br><span class="pct good">82%</span></div>
+</div>
+<div class="mitre-g"><h4>TA0007 发现</h4>
+<div class="mitre-c none"><span class="tid">T1083</span><br><span class="pct">0%</span></div>
+<div class="mitre-c none"><span class="tid">T1057</span><br><span class="pct">0%</span></div>
+</div>
+</div>
+<div style="margin-top:10px;font-size:11px;color:#687385;display:flex;gap:14px">
+<span><span style="color:#237a66">■</span> 已覆盖 (6)</span>
+<span><span style="color:#a35b00">■</span> 部分 (2)</span>
+<span>总体: 8/16 · 执行+凭据+外泄 覆盖良好</span>
+</div>
+</div>
+</div>
+
+</div>
+
+<script>
+// Simulated live event stream (matching existing EventBus pattern)
+const stream = document.getElementById('stream');
+const events = [
+  {t:'12:24:02',v:'allow',s:'npm install express — 包下载放行'},
+  {t:'12:23:55',v:'alert',s:'tools/list 新工具发现'},
+  {t:'12:23:47',v:'block',s:'密钥外传阻断 secret_exposure'}
+];
+let ei = 0;
+setInterval(() => {
+  const e = events[ei % events.length];
+  const d = document.createElement('div');
+  d.className = `stream-item ${e.v}`;
+  d.innerHTML = `<span class="t">${e.t}</span><span class="badge ${e.v}-r">${e.v.toUpperCase()}</span><span class="s">${e.s}</span>`;
+  stream.insertBefore(d, stream.firstChild);
+  if (stream.children.length > 8) stream.removeChild(stream.lastChild);
+  ei++;
+}, 3500);
+</script>
+</body></html>

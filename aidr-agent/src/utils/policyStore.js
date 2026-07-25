@@ -87,6 +87,11 @@ class PolicyStore {
     try {
       this._ensureKeys();
       const publicKey = fs.readFileSync(this.publicKeyPath, "utf8");
+      const expectedKeyId = this._keyId();
+      const algorithm = policy.signature.algorithm || "RSA-SHA256";
+      if (algorithm !== "RSA-SHA256" || !policy.signature.keyId || policy.signature.keyId !== expectedKeyId) {
+        return { valid: false, status: "signature_key_mismatch", revision: policy.policyMeta?.revision || 0, keyId: policy.signature.keyId || null, expectedKeyId };
+      }
       const verifier = crypto.createVerify("RSA-SHA256");
       verifier.update(canonicalJson(unsignedPolicy(policy)));
       verifier.end();
@@ -95,7 +100,8 @@ class PolicyStore {
         valid,
         status: valid ? "verified" : "invalid",
         revision: policy.policyMeta?.revision || 0,
-        keyId: policy.signature.keyId || null,
+        keyId: policy.signature.keyId,
+        expectedKeyId,
         hash: policyHash(policy)
       };
     } catch (error) {

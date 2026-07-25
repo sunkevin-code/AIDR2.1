@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="initial-scale=1">
+<title>AIDR — 行为监控 · Agent 维度</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;color:#18212f;background:#f2f4f7;font-size:14px}
+*{box-sizing:border-box}body{margin:0;min-width:320px;background:#f2f4f7}
+button{font:inherit;border:1px solid #cbd2da;background:#fff;color:#243142;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:11px}
+button:hover{background:#f4f6f8}
+.badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600}
+.badge.allow{background:#e6f4ef;color:#237a66}.badge.alert{background:#fff2d8;color:#8b5400}.badge.block{background:#fdebea;color:#b42318}
+.badge.model{background:#e6f4ef;color:#237a66}.badge.rules{background:#fff2d8;color:#8b5400}.badge.none{background:#eef1f4;color:#687385}
+.badge.on{background:#e6f4ef;color:#237a66}.badge.off{background:#fdebea;color:#b42318}
+.muted{color:#687385}.good{color:#237a66}.warn{color:#a35b00}.bad{color:#b42318}
+select{font:inherit;border:1px solid #cbd2da;border-radius:5px;background:#fff;padding:4px 8px;color:#243142;font-size:12px}
+
+.app{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:100vh}
+.sidebar{background:#171c24;color:#d8dee8;padding:18px 10px}
+.brand{padding:0 10px 16px;border-bottom:1px solid #343b47}.brand h1{font-size:18px;margin:0;color:#fff}.brand p{margin:3px 0 0;color:#8fd5c4;font-size:11px}
+nav{display:grid;gap:3px;padding-top:14px}
+.nav-btn{border:0;background:transparent;color:#adb7c6;text-align:left;padding:8px 10px;border-radius:5px;cursor:pointer;font-size:12px}
+.nav-btn:hover,.nav-btn.active{background:#29313d;color:#fff}
+.main{min-width:0}.topbar{height:48px;padding:0 20px;background:#fff;border-bottom:1px solid #dfe3e8;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:2}
+.content{padding:16px 20px 32px;max-width:1400px;margin:0 auto}
+
+/* Drift panel (global) */
+.drift-panel{background:#fff;border:1px solid #dfe3e8;border-radius:7px;margin-bottom:16px}
+.drift-h{padding:12px 15px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center}
+.drift-h h3{margin:0;font-size:13px}
+.drift-body{padding:12px 15px}
+.drift-summary{display:grid;gap:8px;margin-bottom:6px}
+.drift-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #edf0f2;font-size:11px}
+.drift-row:last-child{border-bottom:0}
+.drift-bar-w{display:flex;align-items:center;gap:8px}
+.drift-bar{flex:1;height:4px;background:#e7eaee;border-radius:3px;overflow:hidden}
+.drift-bar i{height:100%;border-radius:3px;display:block}
+.drift-s{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px}
+.drift-s.pass{background:#e6f4ef;color:#237a66}
+.drift-s.rev{background:#fff2d8;color:#8b5400}
+.drift-s.blk{background:#fdebea;color:#b42318}
+.drift-foot{padding:10px 15px;border-top:1px solid #e7eaee;font-size:11px;color:#687385;display:flex;justify-content:space-between;align-items:center}
+
+/* Agent bar */
+.agent-bar{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:4px}
+.agent-tab{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #dfe3e8;border-radius:6px;background:#fff;cursor:pointer;white-space:nowrap;min-width:180px}
+.agent-tab:hover{border-color:#8dbeb4;background:#f8fcfb}
+.agent-tab.active{border-color:#176f62;background:#f1f8f6}
+.agent-tab-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.agent-tab-dot.on{background:#237a66}.agent-tab-dot.off{background:#b42318}
+.agent-tab-info{flex:1;min-width:0}
+.agent-tab-name{font-size:11px;font-weight:600}
+.agent-tab-meta{font-size:9px;color:#687385;margin-top:1px}
+.agent-tab-score{font-size:14px;font-weight:700}
+.agent-tab-score.good{color:#237a66}.agent-tab-score.warn{color:#a35b00}
+
+/* Agent content grid */
+.ag-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.card{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:14px}
+.card-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.card-h h3{margin:0;font-size:12px}
+.card-h .sub{font-size:10px;color:#687385;font-weight:400}
+
+/* Drift per agent */
+.drift-score{font-size:20px;font-weight:700}
+.drift-score.good{color:#237a66}.drift-score.warn{color:#a35b00}
+.drift-lg{display:grid;gap:6px}
+.dr-item{padding:4px 0;border-bottom:1px solid #edf0f2;font-size:11px}
+.dr-item:last-child{border-bottom:0}
+
+/* Timeline per agent */
+.tl-body{display:grid;gap:2px;max-height:280px;overflow-y:auto}
+.tl-item{display:grid;grid-template-columns:52px 40px 1fr;gap:6px;padding:5px 6px;border-radius:4px;font-size:11px;align-items:center}
+.tl-item:hover{background:#f8f9fb}
+.tl-item .t{color:#84909c;font-size:10px}
+.tl-item.block{border-left:2px solid #b42318}
+.tl-item.alert{border-left:2px solid #c27300}
+.tl-item.allow{border-left:2px solid #2b9079}
+
+/* Capabilities */
+.cap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.cap-item{border:1px solid #e7eaee;border-radius:5px;padding:7px;font-size:10px;text-align:center}
+.cap-item b{display:block;margin-top:3px;font-size:11px}
+
+/* Sessions */
+.sess-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:5px 0;border-bottom:1px solid #edf0f2;font-size:11px;align-items:center}
+.sess-row:last-child{border-bottom:0}
+.sess-row .t{color:#687385;font-size:10px}
+
+/* Event table */
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{padding:7px 10px;border-bottom:1px solid #edf0f2;text-align:left;vertical-align:top}
+th{background:#f7f9fa;color:#687385;font-weight:600;font-size:10px;white-space:nowrap}
+tr{cursor:pointer}tr:hover{background:#f5fbf9}
+
+@media(max-width:960px){.ag-grid{grid-template-columns:1fr}.cap-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head><body>
+<div class="app">
+<aside class="sidebar">
+<div class="brand"><h1>AIDR</h1><p>Zero Trust Runtime</p></div>
+<nav>
+<div class="nav-btn">概览</div><div class="nav-btn">会话</div><div class="nav-btn">AI Agents</div><div class="nav-btn">策略</div>
+<div class="nav-btn active">行为</div><div class="nav-btn">Semantic Model</div><div class="nav-btn">系统</div>
+</nav>
+</aside>
+<div class="main">
+<div class="topbar"><h2 style="font-size:15px;margin:0">行为监控 · Agent 维度</h2><span style="font-size:11px;color:#687385">BehaviorDriftEngine · 按 Agent 聚合漂移/事件/能力</span></div>
+<div class="content">
+
+<!-- ===== Global Drift Panel ===== -->
+<div class="drift-panel">
+<div class="drift-h">
+<h3>🧬 行为基线漂移分析 <span style="font-size:10px;color:#687385;font-weight:400">BehaviorDriftEngine · 实时</span></h3>
+<select style="font-size:10px;padding:3px 6px"><option>最近24小时</option><option>最近7天</option></select>
+</div>
+<div class="drift-body">
+<div class="drift-summary">
+<div class="drift-row"><div><div class="drift-bar-w"><div class="drift-bar"><i style="width:96%;background:#237a66"></i></div><span class="drift-s pass">PASS</span></div><div style="font-size:10px;color:#687385;margin-top:2px">96% · 当前行为仍然围绕已识别任务目标</div></div><b style="font-size:12px">目标一致性</b></div>
+<div class="drift-row"><div><div class="drift-bar-w"><div class="drift-bar"><i style="width:62%;background:#a35b00"></i></div><span class="drift-s rev">REVIEW</span></div><div style="font-size:10px;color:#687385;margin-top:2px">62% · 检测到未在候选策略中的能力请求 (shell+network)</div></div><b style="font-size:12px">能力增量</b></div>
+<div class="drift-row"><div><div class="drift-bar-w"><div class="drift-bar"><i style="width:85%;background:#237a66"></i></div><span class="drift-s pass">PASS</span></div><div style="font-size:10px;color:#687385;margin-top:2px">85% · 行为链顺序与历史基线一致</div></div><b style="font-size:12px">行为顺序</b></div>
+<div class="drift-row"><div><div class="drift-bar-w"><div class="drift-bar"><i style="width:100%;background:#237a66"></i></div><span class="drift-s pass">PASS</span></div><div style="font-size:10px;color:#687385;margin-top:2px">100% · 工作区和数据边界保持稳定</div></div><b style="font-size:12px">数据边界</b></div>
+</div>
+<div style="margin-top:8px"><svg width="100%" height="24" viewBox="0 0 400 24" preserveAspectRatio="none">
+<polyline fill="none" stroke="#a35b00" stroke-width="1.5" points="0,20 20,18 40,22 60,14 80,18 100,10 120,20 140,14 160,18 180,6 200,22 220,12 240,18 260,4 280,16 300,10 320,14 340,18 360,6 380,12 400,16"/>
+<polyline fill="none" stroke="#237a66" stroke-width="1" opacity=".35" points="0,12 400,12"/>
+<text x="6" y="6" fill="#687385" font-size="6">漂移趋势 · 过去24h</text>
+</svg></div>
+</div>
+<div class="drift-foot">
+<span><b style="font-size:18px;color:#a35b00">12</b> /100 基线偏离度 · 触发告警阈值: 20 · 阻断阈值: 70</span>
+<span class="muted">检测到 3 次漂移事件 · <a href="#" style="color:#176f62" onclick="return false">查看全部 →</a></span>
+</div>
+</div>
+
+<!-- ===== Agent tabs ===== -->
+<div class="agent-bar" id="agentBar">
+<div class="agent-tab active" onclick="selectAgent(this)">
+<span class="agent-tab-dot on"></span>
+<div class="agent-tab-info"><div class="agent-tab-name">codex-vm-01</div><div class="agent-tab-meta">Codex CLI · 2h13m · 6 事件</div></div>
+<span class="agent-tab-score good">96</span>
+</div>
+<div class="agent-tab" onclick="selectAgent(this)">
+<span class="agent-tab-dot on"></span>
+<div class="agent-tab-info"><div class="agent-tab-name">opencode-ws-01</div><div class="agent-tab-meta">OpenCode · 45m · 3 事件</div></div>
+<span class="agent-tab-score warn">82</span>
+</div>
+<div class="agent-tab" onclick="selectAgent(this)">
+<span class="agent-tab-dot off"></span>
+<div class="agent-tab-info"><div class="agent-tab-name">codex-vm-02</div><div class="agent-tab-meta">离线 · 3 事件</div></div>
+<span class="agent-tab-score warn">71</span>
+</div>
+</div>
+
+<!-- ===== Per-agent content ===== -->
+<div id="agentContent">
+<div class="ag-grid">
+<!-- Drift per agent -->
+<div class="card">
+<div class="card-h"><h3>🧬 基线漂移 <span class="sub">vs 会话基线</span></h3><span class="drift-score good">12 <span style="font-size:11px;color:#687385;font-weight:400">/100</span></span></div>
+<div class="drift-lg">
+<div class="dr-item"><b>目标一致性</b> · <span class="drift-s pass">PASS</span><div class="drift-bar" style="margin-top:3px"><i style="width:96%;background:#237a66"></i></div></div>
+<div class="dr-item"><b>能力增量</b> · <span class="drift-s rev">REVIEW</span><div class="drift-bar" style="margin-top:3px"><i style="width:62%;background:#a35b00"></i></div></div>
+<div class="dr-item"><b>行为顺序</b> · <span class="drift-s pass">PASS</span><div class="drift-bar" style="margin-top:3px"><i style="width:85%;background:#237a66"></i></div></div>
+<div class="dr-item"><b>数据边界</b> · <span class="drift-s pass">PASS</span><div class="drift-bar" style="margin-top:3px"><i style="width:100%;background:#237a66"></i></div></div>
+</div>
+<div style="margin-top:8px;font-size:10px;color:#687385;padding-top:6px;border-top:1px solid #edf0f2">检测到 2 次漂移 · 最新: 能力扩展 (shell+network)</div>
+</div>
+
+<!-- Timeline per agent -->
+<div class="card">
+<div class="card-h"><h3>⏱️ 实时行为时间线</h3><button onclick="addEvent()">模拟</button></div>
+<div class="tl-body" id="agentTimeline">
+<div class="tl-item block"><span class="t">12:23:47</span><span class="badge block">BLOCK</span><span class="s">密钥外传: .env → evil.example</span></div>
+<div class="tl-item alert"><span class="t">12:23:35</span><span class="badge alert">ALERT</span><span class="s">curl pastebin.com 未授权域名</span></div>
+<div class="tl-item allow"><span class="t">12:23:12</span><span class="badge allow">ALLOW</span><span class="s">ReadFile server.js</span></div>
+<div class="tl-item alert"><span class="t">12:22:58</span><span class="badge alert">ALERT</span><span class="s">漂移: fileRead→shell+network</span></div>
+</div>
+</div>
+
+<!-- Capabilities -->
+<div class="card">
+<div class="card-h"><h3>🔌 能力边界 <span class="sub">当前会话最小权限</span></h3></div>
+<div class="cap-grid">
+<div class="cap-item"><span class="badge on">✓</span><b>fileRead</b></div>
+<div class="cap-item"><span class="badge on">✓</span><b>fileWrite</b></div>
+<div class="cap-item"><span class="badge on">✓</span><b>shell</b></div>
+<div class="cap-item"><span class="badge on">✓</span><b>network</b></div>
+<div class="cap-item"><span class="badge on">✓</span><b>mcpRead</b></div>
+<div class="cap-item"><span class="badge off">✗</span><b>mcpWrite</b></div>
+</div>
+</div>
+
+<!-- Sessions -->
+<div class="card">
+<div class="card-h"><h3>💬 当前会话</h3></div>
+<div class="sess-row"><span>"修复 API 认证模块" · risk=35 (medium)</span><span class="badge allow">ALLOW</span><span class="t">23m</span></div>
+<div class="sess-row"><span>"部署到 staging 环境" · risk=22 (low)</span><span class="badge allow">ALLOW</span><span class="t">12m</span></div>
+</div>
+</div>
+
+<!-- ===== Event table ===== -->
+<div style="background:#fff;border:1px solid #dfe3e8;border-radius:7px">
+<div style="padding:10px 14px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center">
+<h3 style="margin:0;font-size:12px">📋 行为事件 · codex-vm-01</h3>
+<select><option>最近24小时</option></select>
+</div>
+<div style="overflow:auto">
+<table>
+<thead><tr><th>时间</th><th>会话</th><th>类型</th><th>行为</th><th>来源</th><th>判决</th></tr></thead>
+<tbody>
+<tr><td>12:23:47</td><td>修复 API</td><td><span class="badge block" style="font-size:9px">secret</span></td><td>密钥外传: .env → evil.example/upload</td><td><span class="badge model">model</span></td><td><span class="badge block">block</span></td></tr>
+<tr><td>12:23:35</td><td>修复 API</td><td><span class="badge alert" style="font-size:9px">network</span></td><td>curl pastebin.com 不在域名白名单</td><td><span class="badge rules">rules</span></td><td><span class="badge alert">alert</span></td></tr>
+<tr><td>12:23:12</td><td>修复 API</td><td><span class="badge allow" style="font-size:9px">file</span></td><td>ReadFile server.js (已授权路径)</td><td><span class="badge none">rules</span></td><td><span class="badge allow">allow</span></td></tr>
+<tr><td>12:22:58</td><td>修复 API</td><td><span class="badge alert" style="font-size:9px">drift</span></td><td>能力升级: fileRead → shell+network (score=25)</td><td><span class="badge model">model</span></td><td><span class="badge alert">alert</span></td></tr>
+<tr><td>12:22:40</td><td>修复 API</td><td><span class="badge allow" style="font-size:9px">intent</span></td><td>意图分析 · risk=35(medium)</td><td><span class="badge rules">rules</span></td><td><span class="badge allow">allow</span></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+</div></div></div>
+
+<script>
+function selectAgent(el) {
+  document.querySelectorAll('.agent-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+function addEvent() {
+  const tl = document.getElementById('agentTimeline');
+  const d = document.createElement('div');
+  const now = new Date().toTimeString().slice(0,8);
+  const evts = [{v:'allow',s:'npm install 放行'},{v:'alert',s:'新域名 api.ext.com'},{v:'block',s:'rm -rf 阻断'}];
+  const e = evts[Math.floor(Math.random()*evts.length)];
+  d.className = `tl-item ${e.v}`;
+  d.innerHTML = `<span class="t">${now}</span><span class="badge ${e.v}">${e.v.toUpperCase()}</span><span class="s">${e.s}</span>`;
+  tl.insertBefore(d, tl.firstChild);
+  if (tl.children.length > 8) tl.removeChild(tl.lastChild);
+}
+</script>
+</body></html>

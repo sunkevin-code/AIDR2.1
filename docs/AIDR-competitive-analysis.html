@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIDR 竞争分析 — AI Agent 安全防御业界方案对比</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;color:#18212f;background:#f2f4f7;font-size:14px;line-height:1.6}
+*{box-sizing:border-box}body{margin:0}
+.app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+.side{background:#171c24;color:#d8dee8;padding:18px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+.brand{padding:0 10px 16px;border-bottom:1px solid #343b47}.brand h1{font-size:18px;margin:0;color:#fff}.brand p{margin:3px 0 0;color:#8fd5c4;font-size:11px}
+.nav-label{font-size:9px;color:#8da7b7;margin:14px 6px 5px;text-transform:uppercase;letter-spacing:.08em}
+.nav{display:grid;gap:3px;padding-top:10px}.nav a{display:block;padding:7px 10px;border-radius:5px;color:#adb7c6;text-decoration:none;font-size:12px;cursor:pointer}
+.nav a:hover,.nav a.active{background:#29313d;color:#fff}
+.nav a.active{border-left:3px solid #176f62}
+.main{min-width:0;padding:28px 32px 60px;max-width:1300px}
+h1{font-size:26px;margin:0 0 6px;color:#0a1a2a}
+.lead{color:#4a5a6a;font-size:15px;margin:0 0 28px;border-left:4px solid #176f62;padding-left:14px}
+h2{font-size:20px;margin:32px 0 14px;padding-bottom:8px;border-bottom:2px solid #176f62;color:#0a1a2a}
+h2.tagged{display:flex;align-items:center;gap:8px}
+.tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;background:#176f62;color:#fff;font-weight:600}
+h3{font-size:16px;margin:24px 0 10px;color:#1a3040}
+h4{font-size:14px;margin:18px 0 8px}
+p{margin:8px 0;color:#2c4050}
+/* Tables */
+.tw{overflow-x:auto;border:1px solid #dfe3e8;border-radius:7px;margin:14px 0}
+table{width:100%;border-collapse:collapse;font-size:12px;background:#fff}
+th,td{padding:9px 11px;border-bottom:1px solid #edf0f2;text-align:left;vertical-align:top}
+th{background:#f7f9fa;color:#4a5a6a;font-weight:600;font-size:11px;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+tr:hover{background:#f5fbf9}
+td:first-child{font-weight:600;white-space:nowrap}
+.highlight{background:#f0f7f3}
+.highlight td{background:#f0f7f3}
+.unique{background:#e6f4ef}.gap{background:#fff2d8}
+/* Code */
+pre{background:#f6f8fa;border:1px solid #e0e5ea;border-radius:6px;padding:14px;font-size:12px;line-height:1.5;overflow:auto;white-space:pre-wrap;font-family:Consolas,monospace}
+code{background:#eef1f4;padding:1px 5px;border-radius:3px;font-size:90%;font-family:Consolas,monospace}
+/* Cards */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.card{border:1px solid #dfe3e8;border-radius:7px;padding:14px;background:#fff}
+.card h4{margin:0 0 6px}.card p{margin:0;font-size:12px;color:#4a5a6a}
+.card .num{font-size:22px;font-weight:700}.good{color:#237a66}.warn{color:#a35b00}.bad{color:#b42318}
+/* Callout */
+.callout{border-left:4px solid #176f62;background:#f0f7f3;padding:10px 14px;margin:14px 0;border-radius:0 6px 6px 0;font-size:13px}
+.callout.warn{border-color:#c27300;background:#fff2d8}
+.callout strong{display:block;margin-bottom:2px}
+/* Arch */
+.arch{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:18px;margin:14px 0}
+.arch pre{background:transparent;border:none;padding:0;margin:0}
+.arrow{color:#9aa6b4;font-weight:300}
+.box{display:inline-block;padding:4px 10px;border:1px solid #b7d4cb;border-radius:5px;background:#f0f7f3;font-size:11px;white-space:nowrap}
+.box.orange{border-color:#efd59a;background:#fff2d8}
+.box.red{border-color:#efb4b1;background:#fdebea}
+/* List */
+ul{margin:6px 0;padding-left:20px}li{margin:4px 0;font-size:13px}
+.str{display:flex;gap:10px;margin:10px 0}
+.str-item{flex:1;border:1px solid #dfe3e8;border-radius:6px;padding:12px;background:#fff;text-align:center}
+.str-item b{display:block;margin-top:4px}.str-item small{color:#687385;font-size:10px}
+@media(max-width:960px){.app{grid-template-columns:60px minmax(0,1fr)}.side .brand p,.side .nav a span{display:none}.side .nav a{font-size:0;text-align:center}.side .nav a::first-letter{font-size:14px}}
+@media print{body{background:#fff}.side{display:none}.main{padding:20px}.tw{border:1px solid #ccc}table{font-size:10px}}
+</style>
+</head><body>
+<div class="app">
+<aside class="side">
+<div class="brand"><h1>AIDR</h1><p>Zero Trust Runtime</p></div>
+<div class="nav-label">竞争分析</div>
+<nav class="nav">
+<a href="#overview" class="active">📊 业界方案概览</a>
+<a href="#basic">📋 基础能力对比</a>
+<a href="#advanced">🚀 高差异化对比</a>
+<a href="#matrix">🎯 差异化矩阵</a>
+<a href="#identity">🔐 身份图谱</a>
+<a href="#intent">🧠 意图识别+偏移</a>
+<a href="#graph">🔗 行为图谱</a>
+<a href="#fusion">⚡ 三者融合</a>
+<a href="#roadmap">📅 实施路线</a>
+</nav>
+<div class="nav-label">文档信息</div>
+<div style="font-size:10px;color:#8da7b7;padding:6px 10px">基线: AIDR 2.3.0<br>生成: 2026-07-21</div>
+</aside>
+<div class="main">
+
+<h1>AI Agent 安全防御</h1>
+<p class="lead">业界方案对比与 AIDR 优化建议 — 聚焦身份图谱、意图识别/行为偏移、行为图谱三大核心技术</p>
+
+<!-- 1. 业界方案概览 -->
+<h2 id="overview" class="tagged">一、业界主流方案概览 <span class="tag">8 款产品</span></h2>
+<div class="tw">
+<table>
+<thead><tr><th>产品</th><th>厂商</th><th>定位</th><th>核心能力</th><th>目标客户</th></tr></thead>
+<tbody>
+<tr><td><b>Cisco AI Defense</b></td><td>Cisco</td><td>AI 应用全生命周期安全</td><td>AI 应用发现、模型/数据/Agent 风险评估、运行时 MCP 保护、策略即代码</td><td>企业级 AI 平台</td></tr>
+<tr><td><b>Protect AI Guardian</b></td><td>Protect AI</td><td>ML 管道安全 + AI 供应链</td><td>ML 模型扫描、管道安全、RBAC、模型仓库审计、MLDR</td><td>MLops 团队</td></tr>
+<tr><td><b>Cloudflare AI Gateway</b></td><td>Cloudflare</td><td>AI 流量网关</td><td>请求路由、速率限制、敏感数据过滤、模型回退</td><td>API 开发者</td></tr>
+<tr><td><b>Anthropic MCP Security</b></td><td>Anthropic</td><td>MCP 协议安全</td><td>工具权限模型、数据沙箱、审计日志</td><td>MCP 生态</td></tr>
+<tr><td><b>HiddenLayer MLDR</b></td><td>HiddenLayer</td><td>模型检测与响应</td><td>对抗攻击检测、模型窃取防护、输出监控</td><td>模型运维</td></tr>
+<tr><td><b>RJ AI Firewall</b></td><td>Robust Intel.</td><td>模型行为防火墙</td><td>输入/输出验证、异常检测、合规策略</td><td>模型上线</td></tr>
+<tr><td><b>LeakSignal</b></td><td>LeakSignal</td><td>Agent 数据防泄露</td><td>Agent 流量深度检测、敏感数据识别、数据标注</td><td>Agent 开发者</td></tr>
+<tr><td><b>TrojAI</b></td><td>TrojAI</td><td>AI 供应链安全</td><td>模型后门检测、许可证合规、SBOM</td><td>AI 采购</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 2. 基础能力 -->
+<h2 id="basic">二、功能与竞争力对比表</h2>
+<h3>2.1 基础能力对比</h3>
+<div class="tw">
+<table>
+<thead><tr><th>能力维度</th><th>AIDR 当前</th><th>Cisco AI Defense</th><th>Protect AI</th><th>Cloudflare AI</th><th style="color:#176f62">业界最佳</th></tr></thead>
+<tbody>
+<tr><td>AI Agent 发现</td><td>✅ 进程/命令行匹配</td><td>✅ AI 应用资产拓扑</td><td>✅ ML 模型目录</td><td>❌</td><td>Cisco</td></tr>
+<tr class="highlight"><td>会话级最小权限</td><td>✅ Global→Workspace→Agent</td><td>✅ 应用级策略</td><td>❌</td><td>✅ 令牌级</td><td><b class="good">AIDR (独特)</b></td></tr>
+<tr><td>MCP 工具拦截</td><td>✅ HTTP 代理 + 策略</td><td>✅ MCP 深度检测+阻断</td><td>❌</td><td>❌</td><td>AIDR + Cisco</td></tr>
+<tr class="gap"><td>Prompt 注入检测</td><td>✅ 正则+LLM</td><td>✅ 多层检测模型</td><td>❌</td><td>✅ 规则过滤</td><td>Cisco > AIDR</td></tr>
+<tr><td>敏感数据外传</td><td>✅ ThreatDetectionEngine</td><td>✅ DLP 集成</td><td>✅ 管道审计</td><td>✅ 数据过滤</td><td>Cisco</td></tr>
+<tr class="highlight"><td>策略签名回滚</td><td>✅ ed25519 + revision</td><td>❌ 审计日志</td><td>❌</td><td>❌</td><td><b class="good">AIDR (独特)</b></td></tr>
+<tr><td>Web 控制台</td><td>✅ 多页仪表盘</td><td>✅ 统一仪表盘</td><td>✅ 仪表盘</td><td>✅ 仪表盘</td><td>Cisco</td></tr>
+<tr><td>Semantic 模型</td><td>✅ Hybrid (local+remote)</td><td>✅ AI 行为分析</td><td>❌</td><td>❌</td><td>AIDR + Cisco</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>2.2 高差异化能力对比</h3>
+<div class="tw">
+<table>
+<thead><tr><th>能力维度</th><th>AIDR 当前</th><th>Cisco AI Defense</th><th>HiddenLayer</th><th>RJ AI Firewall</th><th style="color:#176f62">业界最佳</th></tr></thead>
+<tbody>
+<tr class="gap"><td>身份图谱</td><td>❌ 无</td><td>✅ Agent→用户→应用映射</td><td>❌</td><td>❌</td><td>Cisco</td></tr>
+<tr class="gap"><td>意图识别</td><td>✅ 规则+语义模型</td><td>✅ ML 行为基线</td><td>❌</td><td>✅ 输入分类</td><td>Cisco > AIDR</td></tr>
+<tr class="gap"><td>行为偏移检测</td><td>✅ 4 维固定权重</td><td>✅ 持续行为基线学习</td><td>✅ 模型行为漂移</td><td>✅ 推理时漂移</td><td>Cisco + HiddenLayer</td></tr>
+<tr class="highlight"><td>行为图谱</td><td>✅ SessionContextGraph</td><td>✅ AI 应用拓扑+流量</td><td>❌</td><td>❌</td><td><b class="good">AIDR + Cisco</b></td></tr>
+<tr class="gap"><td>内核级阻断</td><td>❌ 未实现</td><td>❌ 不依赖 OS</td><td>❌</td><td>❌</td><td>AIDR 计划中</td></tr>
+<tr class="highlight"><td>Agent 适配器</td><td>✅ Generic+OpenCode+Codex</td><td>❌ 专注自家平台</td><td>❌</td><td>❌</td><td><b class="good">AIDR (独特)</b></td></tr>
+<tr class="highlight"><td>离线本地运行</td><td>✅ 全部本地</td><td>❌ 依赖云</td><td>❌</td><td>✅ 可选</td><td><b class="good">AIDR > Cisco</b></td></tr>
+<tr class="highlight"><td>Decision Trace</td><td>✅ 完整 4-stage trace</td><td>❌ 活动日志</td><td>❌</td><td>❌</td><td><b class="good">AIDR (独特)</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 3. 差异化矩阵 -->
+<h2 id="matrix">2.3 差异化矩阵</h2>
+<div class="arch">
+<pre>
+                     <span style="color:#687385">云依赖 ──→ 本地</span>
+                         │
+<span class="box">Cisco AI Defense</span>   ●  │       ●  <span class="box">AIDR</span>
+  (MCP+App拓扑)         │        (完整离线+DecTrace)
+                         │
+     <span class="box orange">HiddenLayer</span>   ●     │     ●  <span class="box orange">RJ AI Firewall</span>
+     (ML模型攻击)       │      (推理防火墙)
+                         │
+          <span class="box">Cloudflare AI Gateway</span> ●
+                         (API网关)
+</pre>
+</div>
+
+<div class="g2">
+<div class="card"><h4 class="good">✅ AIDR 独特优势</h4>
+<p>1. 完整离线运行，不依赖云<br>2. Decision Trace v1（规则→语义→策略→执行的完整证据链）<br>3. Agent 适配器体系（Codex/OpenCode/Generic）<br>4. 策略签名 + 版本回滚<br>5. 四维行为基线偏移检测</p>
+</div>
+<div class="card"><h4 class="bad">⚠️ AIDR 差距</h4>
+<p>1. 无身份图谱（Agent→用户→资源映射）<br>2. 意图识别依赖正则+LLM，无专用 ML 模型<br>3. 行为偏移是 4 维硬编码，无持续学习<br>4. 内核级阻断未实现<br>5. 无 AI 应用资产拓扑发现</p>
+</div>
+</div>
+
+<!-- 4. 身份图谱 -->
+<h2 id="identity">三、专项增强优化建议</h2>
+<h3>3.1 身份图谱技术 (Identity Graph)</h3>
+<p>当前 AIDR 只有 <code>Agent → Session → Policy</code> 的三层关系。缺少身份、资源、行为之间的关联映射。</p>
+
+<div class="g2">
+<div class="card"><h4 style="color:#a35b00">当前 AIDR</h4><p><code>Agent ──→ Session ──→ Policy</code></p></div>
+<div class="card"><h4 style="color:#176f62">业界最佳 (Cisco AI Defense)</h4><p><code>用户 → 身份 → Agent → 会话 → 工具调用</code><br><span style="font-size:11px;color:#687385">每层附带信任链评分和身份验证</span></p></div>
+</div>
+
+<div class="callout"><strong>📁 建议新增: lib/engine/identityGraph.js</strong>
+节点类型: user, identity, agent, session, resource, tool<br>
+边关系: owns, accesses, invokes, targets<br>
+属性: trust_level, risk_score, session_count</div>
+
+<pre>class IdentityGraph {
+  constructor() {
+    this.nodes = [];  // { id, type, label, trust, risk }
+    this.edges = [];  // { source, target, relation, weight }
+  }
+
+  // 查询从 agent 到资源的所有身份路径（BFS）
+  getIdentityPaths(agentId, resourceId) {
+    return paths;  // [{ path: [node...], trust: 0.85 }]
+  }
+
+  // 检测身份冒充
+  detectImpersonation(agentId, claimedUser) {
+    const actual = this.resolveIdentity(agentId);
+    return { match: actual === claimedUser, confidence };
+  }
+}</pre>
+
+<p><strong>集成到 SessionPolicyEngine：</strong> 在 <code>analyzePrompt()</code> 中引入身份信任因子——若身份路径可信则降低风险分数，若检测到身份冒充则直接阻断。</p>
+
+<!-- 5. 意图识别+行为偏移 -->
+<h3 id="intent">3.2 意图识别与行为偏移技术</h3>
+<p>当前 <code>analyzePrompt()</code> 使用正则匹配意图（<code>WRITE_INTENT / SHELL_INTENT / NETWORK_INTENT</code>）。业界最佳实践是使用 ML 模型进行多标签意图分类。</p>
+
+<div class="callout warn"><strong>🧠 建议新增: lib/engine/intentClassifier.js</strong>
+替换 sessionPolicyEngine.js 中的正则意图检测 → 38维特征 → 6 标签多分类 ONNX 模型</div>
+
+<pre>class IntentClassifier {
+  constructor(modelPath) {
+    this.model = loadONNX(modelPath);
+    this.labels = [
+      "file_read", "file_write", "shell",
+      "network", "mcp_use", "data_exfil"
+    ];
+  }
+
+  classify(prompt) {
+    const features = extractFeatures(prompt);  // 38维
+    const probs = this.model.predict(features);
+    return {
+      intents: this.labels.map((l,i) => ({
+        label: l, probability: probs[i]
+      })),
+      primary: this.labels[argmax(probs)]
+    };
+  }
+}</pre>
+
+<h4>行为偏移增强：4 维 → 8 维</h4>
+<div class="tw">
+<table>
+<thead><tr><th style="width:50%">当前 4 维（硬编码权重）</th><th style="width:50%">增强 8 维（动态自适应权重）</th></tr></thead>
+<tbody>
+<tr><td>目标一致性</td><td>✅ 目标一致性</td></tr>
+<tr><td>能力增量</td><td>✅ 能力增量</td></tr>
+<tr><td>行为顺序</td><td>✅ 行为顺序</td></tr>
+<tr><td>数据边界</td><td>✅ 数据边界</td></tr>
+<tr><td style="color:#bbb">—</td><td>🆕 身份信任度 (identity_trust)</td></tr>
+<tr><td style="color:#bbb">—</td><td>🆕 工具调用频率 (tool_frequency)</td></tr>
+<tr><td style="color:#bbb">—</td><td>🆕 资源多样性 (resource_diversity)</td></tr>
+<tr><td style="color:#bbb">—</td><td>🆕 Prompt 熵变 (prompt_entropy)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>增强版 <code>EnhancedDriftEngine</code> 使用 <b>EWMA（指数加权移动平均）</b>持续更新基线，维度权重根据历史方差动态调整——方差大的维度权重降低，减少噪声干扰。</p>
+
+<!-- 6. 行为图谱 -->
+<h3 id="graph">3.3 行为图谱技术</h3>
+<p>当前 <code>sessionContextGraph.js</code> 已实现 5 种节点（context/intent/policy/tool/decision）+6 种关系。缺乏跨会话聚合和社区发现。</p>
+
+<div class="callout"><strong>🔗 建议增强: lib/engine/behaviorGraph.js → EnhancedBehaviorGraph</strong>
+新增三种能力：跨会话聚合 · 社区发现 · 图异常检测</div>
+
+<div class="g2">
+<div class="card"><h4>跨会话行为链</h4><p>聚合同一 Agent 24h 内所有会话，构建统一行为图，发现跨会话的攻击链模式。</p></div>
+<div class="card"><h4>社区发现</h4><p>使用 Louvain 算法识别工具使用模式群组，发现异常分组。</p></div>
+<div class="card"><h4>图异常检测</h4><p>基于 <b>Graph Edit Distance</b> + Isolation Forest，比较当前会话图与基线图的差异。</p></div>
+<div class="card"><h4>因果推断</h4><p>Granger 因果性 + 最短因果路径，判断事件 A 是否导致事件 B。</p></div>
+</div>
+
+<p><b>Web 控制台集成：</b>使用 <code>Cytoscape.js</code> 替代现有 SVG 图谱，支持交互式拖拽、社区高亮、节点检索。</p>
+
+<!-- 7. 三者融合 -->
+<h2 id="fusion">3.4 三者融合架构</h2>
+<div class="arch">
+<pre>
+                         <span style="color:#176f62;font-weight:700">┌──────────────────┐</span>
+                         <span style="color:#176f62">│   Identity Graph   │</span>
+                         <span style="color:#176f62">│  (用户→身份→Agent)  │</span>
+                         <span style="color:#176f62">└────────┬─────────┘</span>
+                                  │ 身份信任因子
+                                  ▼
+<span style="color:#8b5400">┌──────────────┐</span>   意图标签   <span style="color:#0a1a2a">┌──────────────────┐</span>
+<span style="color:#8b5400">│ Intent       │</span>────────────→<span style="color:#0a1a2a">│  Session Policy   │</span>
+<span style="color:#8b5400">│ Classifier   │</span>             <span style="color:#0a1a2a">│  Engine           │</span>
+<span style="color:#8b5400">│ (38维→6标签)  │</span>            <span style="color:#0a1a2a">│  (风险评分+策略)    │</span>
+<span style="color:#8b5400">└──────────────┘</span>             <span style="color:#0a1a2a">└────────┬─────────┘</span>
+                                       │ 策略边界
+                                       ▼
+<span style="color:#b42318">┌──────────────┐</span>   行为向量   <span style="color:#0a1a2a">┌──────────────────┐</span>
+<span style="color:#b42318">│ Enhanced     │</span>────────────→<span style="color:#0a1a2a">│  Enforcer         │</span>
+<span style="color:#b42318">│ Drift Engine │</span>             <span style="color:#0a1a2a">│  (Allow/Alert/Block)│</span>
+<span style="color:#b42318">│ (8维动态权重) │</span>            <span style="color:#0a1a2a">└────────┬─────────┘</span>
+<span style="color:#b42318">└──────────────┘</span>                      │ 行为事件
+                                      ▼
+                               <span style="color:#176f62">┌──────────────────┐</span>
+                               <span style="color:#176f62">│  Behavior Graph   │</span>
+                               <span style="color:#176f62">│  (跨会话+社区+因果) │</span>
+                               <span style="color:#176f62">└──────────────────┘</span>
+</pre>
+</div>
+
+<!-- 8. 实施路线 -->
+<h2 id="roadmap">3.5 实施路线</h2>
+<div class="tw">
+<table>
+<thead><tr><th>阶段</th><th>内容</th><th>工作量</th><th>影响</th></tr></thead>
+<tbody>
+<tr><td><b class="good">1-2 周</b></td><td>IntentClassifier: ONNX 模型替换正则</td><td><span class="badge allow" style="font-size:10px">低</span></td><td><b class="good">高</b> (减少 FP)</td></tr>
+<tr><td><b class="good">1-2 周</b></td><td>DriftEngine 4 维 → 8 维扩展</td><td><span class="badge alert" style="font-size:10px">中</span></td><td><b class="good">高</b> (更细粒度)</td></tr>
+<tr><td><b class="warn">2-3 周</b></td><td>identityGraph.js 核心实现</td><td><span class="badge alert" style="font-size:10px">中</span></td><td><b class="good">高</b> (身份信任)</td></tr>
+<tr><td><b class="warn">3-4 周</b></td><td>BehaviorGraph 跨会话聚合 + 社区发现</td><td><span class="badge alert" style="font-size:10px">中</span></td><td><b class="good">高</b> (威胁狩猎)</td></tr>
+<tr><td><b class="bad">4-6 周</b></td><td>三者融合到 SessionPolicyEngine</td><td><span class="badge block" style="font-size:10px">高</span></td><td><b class="good">极高</b> (全线提升)</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn" style="margin-top:20px">
+<strong>⚡ 最快见效（2-3 天）</strong>
+先实现 IntentClassifier 的 ONNX 小模型（复用钓鱼扩展的 38→6 标签分类），替换 sessionPolicyEngine.js 中的正则意图检测。准确率预计从现在的 ~70% 提升到 ~85%。
+</div>
+
+</div></div>
+<script>
+document.querySelectorAll('.nav a').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    document.querySelectorAll('.nav a').forEach(function(n) { n.classList.remove('active'); });
+    a.classList.add('active');
+    document.getElementById(a.getAttribute('href').slice(1)).scrollIntoView({ behavior: 'smooth' });
+  });
+});
+</script>
+</body></html>

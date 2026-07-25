@@ -28,9 +28,10 @@ class WindowsEnforcementBridge {
         unsupportedActions: "blocked_and_reported"
       },
       process: { status: "user_mode_terminate", enforced: elevated, detail: "Denied processes are terminated after detection; process-create prevention requires a signed kernel callback." },
-      network: { status: elevated ? "windows_firewall_rules" : "requires_elevation", enforced: elevated, managedRuleCount: this.ruleNames.size, detail: "AIDR-managed outbound IP/port rules are persisted and can be cleared for rollback." },
+      network: { status: elevated ? "windows_firewall_rules" : "requires_elevation", enforced: elevated, scope: "host_or_program", managedRuleCount: this.ruleNames.size, detail: "AIDR-managed outbound IP/port rules are persisted and can be cleared for rollback." },
       file: { status: "policy_preflight_quarantine", enforced: true, detail: "Agent tool writes are denied preflight; detected files can be quarantined after the operation." },
-      kernelDriver: { status: "not_installed", enforced: false, requiredFor: ["process_create", "file_pre_operation", "network_pre_connect"], detail: "A signed minifilter/WFP driver is required for OS-wide pre-operation enforcement." }
+      kernelDriver: { status: "not_installed", enforced: false, requiredFor: ["process_create", "file_pre_operation", "network_pre_connect"], detail: "A signed minifilter/WFP driver is required for OS-wide pre-operation enforcement." },
+      runtime: { preflight: true, userModePostDetection: elevated, windowsFirewall: elevated, kernelPreOperation: false, failClosedOnUnsupported: true }
     };
   }
 
@@ -49,22 +50,28 @@ class WindowsEnforcementBridge {
   blockIp(ip, context = {}) {
     if (!isIp(ip)) throw new Error("invalid_ip");
     const name = this._ruleName(`ip-${ip}`);
-    this._netsh(["advfirewall", "firewall", "add", "rule", `name=${name}`, "dir=out", "action=block", "profile=any", `remoteip=${ip}`, "description=AIDR managed rule"]);
+    const args = ["advfirewall", "firewall", "add", "rule", `name=${name}`, "dir=out", "action=block", "profile=any", `remoteip=${ip}`];
+    if (context.program) args.push(`program=${path.resolve(String(context.program))}`);
+    args.push("description=AIDR managed rule");
+    this._netsh(args);
     this.ruleNames.add(name);
     this._persistRuleNames();
     this.stats.networkRules++;
-    return { blockedIp: ip, ruleName: name, ...context };
+    return { blockedIp: ip, ruleName: name, scope: context.program ? "program" : "host", ...context };
   }
 
   blockPort(port, context = {}) {
     const numericPort = Number(port);
     if (!Number.isInteger(numericPort) || numericPort < 1 || numericPort > 65535) throw new Error("invalid_port");
     const name = this._ruleName(`port-${numericPort}`);
-    this._netsh(["advfirewall", "firewall", "add", "rule", `name=${name}`, "dir=out", "action=block", "profile=any", "protocol=TCP", `remoteport=${numericPort}`, "description=AIDR managed rule"]);
+    const args = ["advfirewall", "firewall", "add", "rule", `name=${name}`, "dir=out", "action=block", "profile=any", "protocol=TCP", `remoteport=${numericPort}`];
+    if (context.program) args.push(`program=${path.resolve(String(context.program))}`);
+    args.push("description=AIDR managed rule");
+    this._netsh(args);
     this.ruleNames.add(name);
     this._persistRuleNames();
     this.stats.networkRules++;
-    return { blockedPort: numericPort, ruleName: name, ...context };
+    return { blockedPort: numericPort, ruleName: name, scope: context.program ? "program" : "host", ...context };
   }
 
   async blockDomain(domain, context = {}) {
@@ -72,7 +79,7 @@ class WindowsEnforcementBridge {
     if (!/^[a-z0-9.-]+$/.test(normalized) || normalized.length > 253) throw new Error("invalid_domain");
     const addresses = await dns.lookup(normalized, { all: true });
     if (!addresses.length) throw new Error("domain_not_resolved");
-    const rules = addresses.map(entry => this.blockIp(entry.address, { domain: normalized }));
+    const rules = addresses.map(entry => this.blockIp(entry.address, { ...context, domain: normalized }));
     return { blockedDomain: normalized, addresses: rules.map(rule => rule.blockedIp), ...context };
   }
 

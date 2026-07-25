@@ -10,7 +10,8 @@ class RegistrySensor {
     this.active = false;
     this.interval = null;
     this.polling = false;
-    this.stats = { checks: 0, alerts: 0 };
+    this.alertCache = new Map();
+    this.stats = { checks: 0, alerts: 0, suppressed: 0 };
   }
 
   async start() {
@@ -36,6 +37,8 @@ class RegistrySensor {
         { key: "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", label: "Winlogon" },
         { key: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", label: "System Policies" }
       ];
+      const dedupWindowMs = Math.max(10000, Number(this.policy.sensors?.registry?.dedupWindowMs) || 60000);
+      const now = Date.now();
       for (const item of sensitiveKeys) {
         try {
           const regPath = item.key.replace("HKLM\\", "HKLM:");
@@ -47,6 +50,12 @@ class RegistrySensor {
           const event = { category: "registry", summary: "Registry scan: " + item.label, detail: { key: item.key, values: output.slice(0, 500) } };
           const ruleResult = this.ruleEngine?.evaluate(event) || { verdict: "allow" };
           if (ruleResult.verdict !== "allow") {
+            const lastAlertAt = this.alertCache.get(item.key) || 0;
+            if (now - lastAlertAt < dedupWindowMs) {
+              this.stats.suppressed++;
+              continue;
+            }
+            this.alertCache.set(item.key, now);
             this.stats.alerts++;
             this.addEvent("registry", ruleResult.severity || "medium", ruleResult.verdict, "Sensitive registry item: " + item.label, { key: item.key, values: output.slice(0, 200) }, { mitreTactic: "Persistence", mitreTechnique: "T1547" });
           }

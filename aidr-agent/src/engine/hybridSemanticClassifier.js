@@ -3,7 +3,7 @@ class HybridSemanticClassifier {
     this.local = localClassifier;
     this.remote = remoteClassifier;
     this.config = normalizeConfig(config);
-    this.stats = { analyzed: 0, localUsed: 0, remoteUsed: 0, hybridUsed: 0, fallback: 0, lastSource: null };
+    this.stats = { analyzed: 0, localUsed: 0, remoteUsed: 0, hybridUsed: 0, fallback: 0, errors: 0, lastSource: null };
   }
 
   configure(config = {}) {
@@ -47,37 +47,50 @@ class HybridSemanticClassifier {
     const localAvailable = this.config.enabled !== false && this.local?.isAvailable?.();
     const remoteAvailable = this.remote?.isAvailable?.();
     if (this.config.mode === "remote_first" && remoteAvailable) {
-      const remote = await this.remote[method](input, context);
-      this.stats.remoteUsed++;
-      this.stats.lastSource = remote?.source || "semantic_model";
-      return remote;
+      const remote = await this._invoke(this.remote, method, input, context);
+      if (remote) {
+        this.stats.remoteUsed++;
+        this.stats.lastSource = remote.source || "semantic_model";
+        return remote;
+      }
     }
     if (localAvailable) {
-      const local = await this.local[method](input, context);
-      this.stats.localUsed++;
-      if (!remoteAvailable || this.config.mode === "local_only" || Number(local?.confidence || 0) >= this.config.confidenceThreshold || this.config.remoteFallback === false) {
-        this.stats.lastSource = "local_model";
-        return local;
-      }
-      try {
-        const remote = await this.remote[method](input, context);
-        this.stats.remoteUsed++;
-        this.stats.hybridUsed++;
-        this.stats.lastSource = "hybrid_model";
-        return combine(local, remote);
-      } catch (_) {
+      const local = await this._invoke(this.local, method, input, context);
+      if (local) {
+        this.stats.localUsed++;
+        if (!remoteAvailable || this.config.mode === "local_only" || Number(local.confidence || 0) >= this.config.confidenceThreshold || this.config.remoteFallback === false) {
+          this.stats.lastSource = "local_model";
+          return local;
+        }
+        const remote = await this._invoke(this.remote, method, input, context);
+        if (remote) {
+          this.stats.remoteUsed++;
+          this.stats.hybridUsed++;
+          this.stats.lastSource = "hybrid_model";
+          return combine(local, remote);
+        }
         this.stats.fallback++;
         this.stats.lastSource = "local_model";
         return local;
       }
     }
     if (remoteAvailable) {
-      const remote = await this.remote[method](input, context);
-      this.stats.remoteUsed++;
-      this.stats.lastSource = remote?.source || "semantic_model";
-      return remote;
+      const remote = await this._invoke(this.remote, method, input, context);
+      if (remote) {
+        this.stats.remoteUsed++;
+        this.stats.lastSource = remote.source || "semantic_model";
+        return remote;
+      }
     }
+    this.stats.fallback++;
+    this.stats.lastSource = "rules_only";
     return { source: "rules_only", verdict: "allow", severity: "info", riskLevel: "unknown", confidence: 0, categories: [] };
+  }
+
+  async _invoke(classifier, method, input, context) {
+    if (!classifier || typeof classifier[method] !== "function") return null;
+    try { return await classifier[method](input, context); }
+    catch (_) { this.stats.errors++; return null; }
   }
 }
 

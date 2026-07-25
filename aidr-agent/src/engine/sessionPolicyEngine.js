@@ -8,6 +8,8 @@ const { ThreatDetectionEngine } = require("./threatDetectionEngine");
 const { buildBehaviorTraceGraph } = require("./behaviorTraceGraph");
 const { buildSessionContextGraph } = require("./sessionContextGraph");
 const { readJsonWithBackup, writeJsonAtomic } = require("../utils/atomicJson");
+const { createDecisionContract } = require("./decisionContract");
+const { buildIntentEvidence } = require("./intentEvidence");
 
 const WRITE_INTENT = /(修改|编辑|创建|生成|实现|修复|优化|重构|构建|打包|安装|部署|删除|写入|update|edit|modify|change|create|generate|implement|fix|optimi[sz]e|refactor|build|package|install|deploy|delete|write)/i;
 const SHELL_INTENT = /(运行|启动|测试|构建|编译|安装|执行|命令|run|start|test|build|compile|install|execute|command|shell|powershell|npm|git|dotnet|cargo)/i;
@@ -20,11 +22,12 @@ const PROMPT_INJECTION = /(?:ignore\s+(?:all\s+|any\s+|the\s+|your\s+)?(?:previo
 const SECRET_OUTPUT = /(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|(?:api[_-]?key|secret|token|password)\s*[:=]\s*["']?[A-Za-z0-9_\-\/+=]{18,})/i;
 
 class SessionPolicyEngine {
-  constructor(policy, addEvent, statePath, semanticClassifier = null) {
+  constructor(policy, addEvent, statePath, semanticClassifier = null, identityGraph = null) {
     this.policy = policy;
     this.addEvent = addEvent;
     this.statePath = statePath;
     this.semanticClassifier = semanticClassifier;
+    this.identityGraph = identityGraph;
     this.sessions = new Map();
     this.migrationVersion = 0;
     this.stats = { sessions: 0, analyzed: 0, allowed: 0, alerted: 0, blocked: 0, approvalCreated: 0, approvalResolved: 0, approvalExpired: 0 };
@@ -178,6 +181,46 @@ class SessionPolicyEngine {
     if (PROMPT_INJECTION.test(positiveText)) { score += 50; risks.push("prompt_injection"); }
     for (const category of threatAnalysis.categories) { if (!risks.includes(category)) risks.push(category); }
     score = Math.min(100, score + threatAnalysis.findings.reduce((total, finding) => total + (finding.severity === "critical" ? 35 : finding.severity === "high" ? 25 : 10), 0));
+
+    // ── Identity Graph: trust factor + impersonation detection ──
+    if (this.identityGraph) {
+      try {
+        const agentId = String(context.agent || context.agent_type || "codex");
+        const claimedUser = context.user || context.claimedUser || context.username || null;
+
+        // Resolve identity chain
+        const resolution = this.identityGraph.resolveIdentity(agentId);
+        if (resolution.resolved) {
+          // Trust factor: high trust = reduce risk score (max 40% reduction)
+          const trustFactor = Math.max(0.6, resolution.trust);
+          const beforeIdentity = score;
+          score = Math.round(score * trustFactor);
+
+          if (beforeIdentity !== score) {
+            this._recordAgentMetric(agentId, "identity_trust_reduction", beforeIdentity - score);
+          }
+        } else {
+          // Unresolved agent → moderate risk increase
+          score = Math.min(100, score + 10);
+          risks.push("identity_unresolved");
+        }
+
+        // Detect impersonation if claimed user differs
+        if (claimedUser) {
+          const impersonation = this.identityGraph.detectImpersonation(agentId, claimedUser);
+          if (!impersonation.match) {
+            // High-confidence mismatch → block-level escalation
+            const severityAdd = impersonation.severity === "critical" ? 60 : 45;
+            score = Math.min(100, score + severityAdd);
+            risks.push("identity_impersonation");
+          }
+        }
+      } catch (err) {
+        // Identity check failure → log but don't block analysis
+        console.warn("[IdentityGraph] analysis failed:", err.message);
+      }
+    }
+
     score = Math.min(100, score);
 
     const agentId = String(context.agent || context.agent_type || context.agentType || this.policy.agentType || "codex");
@@ -241,7 +284,7 @@ class SessionPolicyEngine {
       }
     }
 
-    return {
+    const result = {
       analyzer: "aidr-local-intent-v1",
       summary: this._summarize(text),
       riskScore: score,
@@ -280,6 +323,44 @@ class SessionPolicyEngine {
         workspacePolicy: { source: workspaceResolution.source, matched: workspaceResolution.matched, allowedReadPaths: workspaceReadPaths, allowedWritePaths: workspaceWritePaths, allowedDomains: workspaceDomains, allowedMcpTools: workspaceMcpTools },
         requireApproval
       }
+    };
+    result.intentEvidence = buildIntentEvidence({ prompt: text, input: context, localIntent: result });
+    return result;
+  }
+
+  async analyzePromptDecision(prompt, context = {}) {
+    const text = String(prompt || "");
+    const input = {
+      hook_event_name: "UserPromptSubmit",
+      prompt: text,
+      fullPrompt: text,
+      cwd: context.cwd || this.policy.workspaceRoot,
+      agent: context.agent || context.agent_type || this.policy.agentType || "generic",
+      session_id: context.sessionId || null,
+      turn_id: context.turnId || null,
+      source: context.source || "intent_api"
+    };
+    const localIntent = this.analyzePrompt(text, context);
+    let semantic = null;
+    if (this.semanticClassifier?.isAvailable?.()) {
+      try { semantic = await this.semanticClassifier.analyzePrompt(text, context); } catch (_) { semantic = null; }
+    }
+    const intent = this._mergeSemanticIntent(localIntent, semantic, { prompt: text, input });
+    const semanticDecision = this._semanticPromptDecision(semantic);
+    const localDecision = this._localPromptDecision(localIntent);
+    let decision = { verdict: "allow", reason: "Policy allowed", rule: "policy.default_allow" };
+    if (semanticDecision?.verdict === "block") decision = semanticDecision;
+    else if (localDecision?.verdict === "block") decision = localDecision;
+    else if (semanticDecision) decision = semanticDecision;
+    else if (localDecision) decision = localDecision;
+    const decisionTrace = this._buildDecisionTrace({ session: null, input, hookName: "IntentAnalyze", localIntent, localDecision, semantic, intent, decision });
+    return {
+      intent,
+      generatedPolicy: intent.policy,
+      localAnalysis: localIntent,
+      semanticAnalysis: semantic,
+      decision,
+      decisionTrace
     };
   }
 
@@ -338,7 +419,7 @@ class SessionPolicyEngine {
       }
       const localIntent = this.analyzePrompt(prompt, input);
       const semantic = this._isSemanticResult(options.semanticResult) ? options.semanticResult : null;
-      const intent = this._mergeSemanticIntent(localIntent, semantic);
+      const intent = this._mergeSemanticIntent(localIntent, semantic, { prompt, input });
       const semanticDecision = this._semanticPromptDecision(semantic);
       const localDecision = this._localPromptDecision(localIntent);
       if (semanticDecision?.verdict === "block") decision = semanticDecision;
@@ -561,14 +642,17 @@ class SessionPolicyEngine {
     const sequence = Number(session?.traceSequence || 0) + 1;
     if (session) session.traceSequence = sequence;
     const parentTraceId = session?.decisionTrace?.traceId || null;
+    const traceId = crypto.randomUUID();
     const path = [];
     path.push({ stage: "local_rules", outcome: localDecision?.verdict || "allow", rule: localDecision?.rule || "rules.no_match", reason: localDecision?.reason || "No local blocking rule matched" });
     path.push({ stage: "semantic_model", outcome: semanticUsed ? (semantic.verdict || semantic.riskLevel || "analyzed") : "not_used", rule: semanticUsed ? (semantic.reason || null) : null, reason: semanticUsed ? "Semantic result included in final policy decision" : "Rules-only fallback or semantic analysis unavailable" });
     path.push({ stage: "least_privilege_policy", outcome: intent?.policy?.mode || "monitor", rule: "session_policy.resolve", reason: "Capabilities constrained by global, workspace, Agent and session boundaries" });
     path.push({ stage: "final_enforcement", outcome: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" });
+    const decisionContract = createDecisionContract({ session, input, hookName, localIntent, localDecision, semantic, intent, decision, traceId });
     return {
       schemaVersion: "aidr-decision-trace-v2",
-      traceId: crypto.randomUUID(),
+      contractVersion: decisionContract.schemaVersion,
+      traceId,
       parentTraceId,
       sequence,
       sessionId: session?.id || input?.session_id || input?.conversation_id || null,
@@ -586,7 +670,8 @@ class SessionPolicyEngine {
       semanticModel: semanticUsed ? { source: semantic.source || "semantic_model", provider: semantic.provider || null, model: semantic.model || null, verdict: semantic.verdict || null, severity: semantic.severity || null, riskLevel: semantic.riskLevel || null, confidence: semantic.confidence ?? 0 } : { source: "rules_only", status: "not_used_or_unavailable" },
       sessionPolicy: { source: "least_privilege_policy", capabilities: intent?.capabilities || {}, requireApproval: intent?.policy?.requireApproval || {}, resolution: intent?.policy?.resolution || null },
       decisionPath: path,
-      final: { verdict: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" }
+      final: { verdict: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" },
+      decisionContract
     };
   }
 
@@ -622,7 +707,7 @@ class SessionPolicyEngine {
     return null;
   }
 
-  _mergeSemanticIntent(local, semantic) {
+  _mergeSemanticIntent(local, semantic, context = {}) {
     if (!this._isSemanticResult(semantic)) return local;
     const confidence = Number(semantic.confidence || 0);
     const capabilities = { ...(local.capabilities || {}) };
@@ -653,7 +738,9 @@ class SessionPolicyEngine {
     const localRank = ranks[local.riskLevel] || 0;
     const semanticRank = ranks[semantic.riskLevel] || 0;
     const riskLevel = semanticRank > localRank ? semantic.riskLevel : local.riskLevel;
-    return { ...local, analyzer: "aidr-local-intent-v1+semantic", riskScore: Math.max(Number(local.riskScore || 0), Number(semantic.riskScore || 0)), riskLevel, risks: Array.from(new Set([...(local.risks || []), ...(semantic.categories || [])])), capabilities, policy, semanticAnalysis: semantic };
+    const merged = { ...local, analyzer: "aidr-local-intent-v1+semantic", riskScore: Math.max(Number(local.riskScore || 0), Number(semantic.riskScore || 0)), riskLevel, risks: Array.from(new Set([...(local.risks || []), ...(semantic.categories || [])])), capabilities, policy, semanticAnalysis: semantic };
+    merged.intentEvidence = buildIntentEvidence({ prompt: context.prompt || "", input: context.input || {}, localIntent: local, semantic, finalIntent: merged });
+    return merged;
   }
   _checkCommand(command, effective) {
     const text = String(command || "");
@@ -837,11 +924,13 @@ class SessionPolicyEngine {
     });
   }
 
-  getSessions(includeActions = false) {
+  getSessions(includeActions = false, compact = false) {
     return Array.from(this.sessions.values())
       .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-      .filter(session => sanitizePrompt(session.prompt || session.rawPrompt || ""))
-      .map(session => this._publicSession(session, includeActions));
+      .filter(session => compact
+        ? Boolean(session.promptPreview || session.prompt || session.rawPrompt)
+        : sanitizePrompt(session.prompt || session.rawPrompt || ""))
+      .map(session => this._publicSession(session, includeActions, compact));
   }
 
   getSession(id) {
@@ -882,7 +971,43 @@ class SessionPolicyEngine {
     };
   }
 
-  _publicSession(session, includeActions = false) {
+  _publicSession(session, includeActions = false, compact = false) {
+    if (compact) {
+      const latestAction = session.actions[session.actions.length - 1] || {};
+      const intent = session.intent || {};
+      return {
+        id: session.id,
+        agent: session.agent,
+        model: session.model,
+        cwd: session.cwd,
+        permissionMode: session.permissionMode,
+        status: session.status,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        endedAt: session.endedAt,
+        turnId: session.turnId,
+        traceSequence: Number(session.traceSequence || 0),
+        promptPreview: session.promptPreview,
+        intent: session.intent ? {
+          summary: intent.summary || null,
+          riskLevel: intent.riskLevel || null,
+          riskScore: intent.riskScore ?? null,
+          intentEvidence: intent.intentEvidence ? {
+            schemaVersion: intent.intentEvidence.schemaVersion,
+            source: intent.intentEvidence.source,
+            promptSha256: intent.intentEvidence.promptSha256
+          } : null
+        } : null,
+        behaviorDrift: session.behaviorDrift || null,
+        actionCount: session.actions.length,
+        decisions: session.actions.reduce((acc, action) => {
+          acc[action.verdict] = (acc[action.verdict] || 0) + 1;
+          return acc;
+        }, { allow: 0, alert: 0, block: 0 }),
+        verdict: latestAction.verdict || null,
+        riskLevel: intent.riskLevel || latestAction.verdict || "low"
+      };
+    }
     const result = {
       id: session.id, agent: session.agent, model: session.model, cwd: session.cwd,
       permissionMode: session.permissionMode, status: session.status,
@@ -1059,6 +1184,14 @@ class SessionPolicyEngine {
       this.persistence.saveFailures++;
       this.persistence.lastSaveError = error.message;
     }
+  }
+  _recordAgentMetric(agentId, metric, value) {
+    // Simple per-agent metric collector
+    if (!this._agentMetrics) this._agentMetrics = new Map();
+    const key = String(agentId);
+    const entry = this._agentMetrics.get(key) || {};
+    entry[metric] = (entry[metric] || 0) + Number(value || 0);
+    this._agentMetrics.set(key, entry);
   }
 }
 

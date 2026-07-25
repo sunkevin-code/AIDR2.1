@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=1500">
+<title>AIDR · ABCG 行为原子能力格栅 v2</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;color:#182536;font-size:14px}
+*{box-sizing:border-box}body{margin:0;background:#f2f4f7;min-width:1200px}
+.app{display:grid;grid-template-columns:200px 1fr;min-height:100vh}
+.side{background:#171c24;color:#d8dee8;padding:14px 10px}.brand{padding:0 8px 12px;border-bottom:1px solid #343b47}.brand b{display:block;font-size:16px;color:#fff}.brand small{font-size:9px;color:#8fd5c4}
+nav{display:grid;gap:2px;padding-top:8px}.nav-btn{border:0;background:transparent;color:#adb7c6;text-align:left;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:11px}.nav-btn:hover,.nav-btn.active{background:#29313d;color:#fff}
+.nav-sep{height:1px;background:#343b47;margin:6px 0}
+.main{min-width:0;overflow-y:auto}
+.topbar{height:42px;padding:0 16px;background:#fff;border-bottom:1px solid #dfe3e8;display:flex;align-items:center;justify-content:space-between}
+.topbar h2{font-size:14px;margin:0}.live{display:flex;align-items:center;gap:6px;font-size:11px;color:#167769;font-weight:600}
+.live i{width:7px;height:7px;border-radius:50%;background:#2fa184;display:inline-block}
+.tabs{display:flex;gap:2px;background:#eef1f4;border-radius:6px;padding:2px}.tab{border:0;background:transparent;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;color:#586474}.tab.active{background:#fff;color:#18212f;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.content{padding:14px 16px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.metric{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:11px 13px}
+.metric span{display:block;color:#687385;font-size:10px}.metric b{display:block;font-size:20px;margin-top:4px;color:#182536}
+.metric.warn b{color:#a35b00}.metric.bad b{color:#b42318}
+.workspace{display:grid;grid-template-columns:220px 1fr 280px;gap:12px;align-items:start}
+
+/* Sessions */
+.sessions{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:12px;display:grid;gap:6px;align-self:start}
+.sessions h4{margin:0;font-size:11px;color:#687385}
+.sess{border:1px solid #dfe3e8;border-radius:5px;padding:8px;cursor:pointer;font-size:11px}
+.sess:hover{border-color:#8dbeb4;background:#f8fcfb}
+.sess.active{border-color:#176f62;background:#f1f8f6}
+.sess b{display:block;font-size:11px}.sess small{display:block;color:#687385;font-size:9px;margin-top:2px}
+
+/* Orbit */
+.orbit{background:#fff;border:1px solid #dfe3e8;border-radius:7px;min-width:0}
+.orbit-head{padding:10px 12px;border-bottom:1px solid #edf0f2;display:flex;justify-content:space-between;align-items:center}
+.orbit-head h3{margin:0;font-size:12px}
+.orbit-head small{display:block;color:#687385;font-size:9px;margin-top:1px}
+.orbit-tools{display:flex;align-items:center;gap:4px}
+.orbit-tools button{border:1px solid #cbd2da;background:#fff;border-radius:4px;padding:3px 7px;font-size:10px;cursor:pointer}
+.orbit-tools button.pressed{background:#176f62;color:#fff;border-color:#176f62}
+.orbit-body{padding:8px;min-height:460px}
+.orbit-body svg{width:100%;height:100%;display:block}
+.orbit-legend{display:flex;gap:10px;flex-wrap:wrap;padding:6px 12px;border-top:1px solid #edf0f2;font-size:10px;color:#687385}
+.orbit-legend span{display:flex;align-items:center;gap:4px}
+.orbit-legend i{display:inline-block;width:8px;height:8px;border-radius:2px}
+
+/* Inspector */
+.inspector{display:grid;gap:10px;align-self:start}
+.insp{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:10px 12px}
+.insp h4{margin:0 0 4px;font-size:11px}.insp h5{margin:0 0 2px;font-size:12px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;font-size:10px;margin-top:6px}
+.kv span{color:#687385;font-size:9px}.kv b{font-size:11px}
+.badge{display:inline-flex;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700}
+.badge.g{background:#e6f4ef;color:#237a66}.badge.y{background:#fff2d8;color:#8b5400}.badge.r{background:#fdebea;color:#b42318}.badge.b{background:#e9f1fb;color:#2563a8}
+.decision{padding:8px 10px;background:#fdebea;border:1px solid #efb4b1;border-radius:5px;font-size:11px;margin-top:6px}
+.decision strong{display:block;color:#b42318;font-size:12px}
+.decision small{display:block;color:#687385;font-size:9px;margin-top:3px}
+.boundary-check{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:4px;margin-top:6px;font-size:10px;text-align:center}
+.boundary-check b{display:block;font-size:12px;margin-top:2px}.boundary-check .r{color:#b42318}
+.read-guide{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:8px}
+.read-guide span{display:flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid #dfe3e8;border-radius:4px;font-size:10px;color:#687385}
+.read-guide i{width:14px;height:3px;border-radius:3px;flex:none}
+</style>
+</head><body>
+<div class="app">
+<aside class="side">
+<div class="brand"><b>AIDR Endpoint</b><small>Agent Runtime Defense v2.3.0</small></div>
+<nav>
+<div class="nav-btn">安全概览</div><div class="nav-btn active">🎯 行为监控</div>
+<div class="nav-btn">会话</div><div class="nav-btn">策略</div>
+<div class="nav-btn">系统</div>
+</nav>
+<div class="nav-sep"></div>
+<div style="font-size:9px;color:#687888;padding:4px 8px">ABCG v1 · 60 atoms</div>
+<div style="font-size:9px;color:#687888;padding:0 8px">9 domains · 5 rings</div>
+</aside>
+<div class="main">
+<div class="topbar">
+<h2>行为监控 · ABCG 能力格栅</h2>
+<div class="tabs" id="viewTabs"><div class="tab active" onclick="setView('orbit')">🎯 权限同心圆</div><div class="tab" onclick="setView('grid')">📐 格栅图谱</div></div>
+<div class="live"><i></i><span>AIDR online</span></div>
+</div>
+<div class="content">
+<div class="metrics">
+<div class="metric"><span>活跃会话</span><b>3</b></div>
+<div class="metric"><span>行为原子</span><b id="mAtoms">60</b></div>
+<div class="metric warn"><span>已执行行为</span><b id="mExecuted">0</b></div>
+<div class="metric bad"><span>策略阻断</span><b id="mBlocked">0</b></div>
+</div>
+<div class="workspace">
+<div class="sessions" id="sessionList">
+<h4>Agent 会话</h4>
+<div class="sess active" onclick="selectSession(this,'review')"><b>审查支付模块安全性</b><small>Codex · High risk</small></div>
+<div class="sess" onclick="selectSession(this,'docs')"><b>整理架构设计文档</b><small>OpenCode · Low risk</small></div>
+<div class="sess" onclick="selectSession(this,'deploy')"><b>部署测试环境服务</b><small>Codex · Medium risk</small></div>
+</div>
+<div class="orbit" id="orbitPanel">
+<div class="orbit-head"><div><h3 id="orbitTitle">Policy Orbit · 同心圆权限边界</h3><small id="orbitSub">内环=安全基线 · 外环=高风险 · 5环×9域×60原子</small></div><div class="orbit-tools"><button class="pressed" id="btnCmp" onclick="toggleMode(this)">预测 vs 实际</button><button id="btnFoc" onclick="toggleFocus(this)">聚焦域</button></div></div>
+<div class="read-guide"><span><i style="background:#94a3b8"></i>组织边界 · 全局上限</span><span><i style="background:#f97316"></i>任务边界 · 最小权限</span><span><i style="background:linear-gradient(90deg,#3b82f6,#10b981,#f97316,#ef4444)"></i>运行轨迹</span></div>
+<div class="orbit-body"><svg id="orbitSvg" viewBox="0 0 700 700"></svg></div>
+<div class="orbit-legend">
+<span><i style="background:#94a3b8"></i>组织边界</span><span><i style="background:#f97316"></i>任务边界</span><span><i style="background:#3b82f6;width:6px;height:6px;border-radius:50%"></i>已执行</span><span><i style="background:#ef4444;width:6px;height:6px;border-radius:50%"></i>阻断</span>
+</div>
+</div>
+<div class="inspector">
+<div class="insp"><h4>当前行为原子</h4><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><h5 id="inspAtom">—</h5><span class="badge r" id="inspState">—</span></div>
+<div class="kv"><span>行为领域</span><b id="inspDomain">—</b><span>风险环</span><b id="inspRing">—</b><span>任务边界</span><b id="inspBoundary">—</b><span>触发规则</span><b id="inspRule">—</b></div></div>
+<div class="decision" id="inspDecision" style="display:none"><strong id="inspVerdict">—</strong><small id="inspReason">—</small><div class="boundary-check"><span>行为要求<b id="inspRequired">—</b></span><em>&gt;</em><span>任务允许<b id="inspAllowed">—</b></span><em>→</em><span>边界判断<b id="inspResult">—</b></span></div></div>
+<div class="insp"><h4>决策链</h4><div class="kv"><span>本地规则</span><b id="inspLocal">—</b><span>语义模型</span><b id="inspSemantic">—</b><span>权限图谱</span><b id="inspGraph">—</b><span>执行延迟</span><b id="inspLatency">—</b></div></div>
+</div>
+</div>
+</div>
+</div></div>
+
+<script>
+// ====== ABCG DATA (from behaviorAtoms.js) ======
+const DOMAINS = [
+  { id:"INTENT",label:"意图",color:"#8b5cf6",atoms:["RECEIVE","INTERPRET","INFER","CLARIFY","CONFIRM","MODIFY","DELEGATE","TERMINATE"]},
+  { id:"PLAN",  label:"计划",color:"#3b82f6",atoms:["CREATE","DECOMPOSE","SELECT","MODIFY","RETRY","FALLBACK","VALIDATE","COMPLETE"]},
+  { id:"AGENT", label:"Agent",color:"#10b981",atoms:["CREATE","CONFIGURE","START","STOP","DELEGATE","COMMUNICATE","SHARE_CONTEXT","AGGREGATE"]},
+  { id:"MODEL", label:"模型",color:"#f59e0b",atoms:["INVOKE","SWITCH","SEND_CONTEXT","RECEIVE_OUTPUT","VALIDATE_OUTPUT","CACHE"]},
+  { id:"TOOL",  label:"工具",color:"#ef4444",atoms:["DISCOVER","CONNECT","REGISTER","CONFIGURE","INVOKE","RECEIVE_RESULT","CHAIN","DISCONNECT"]},
+  { id:"AUTH",  label:"身份",color:"#f97316",atoms:["IDENTITY_AUTHENTICATE","IDENTITY_IMPERSONATE","CREDENTIAL_DISCOVER","CREDENTIAL_ACQUIRE","CREDENTIAL_USE","CREDENTIAL_TRANSFER","CREDENTIAL_REVOKE","PERMISSION_CHECK","PERMISSION_REQUEST","PERMISSION_MODIFY"]},
+  { id:"DATA",  label:"数据",color:"#14b8a6",atoms:["RESOURCE_DISCOVER","RESOURCE_CREATE","DATA_READ","DATA_WRITE","DATA_MODIFY","DATA_TRANSFORM","DATA_TRANSFER","DATA_PUBLISH","RESOURCE_DELETE","RESOURCE_PERMISSION_CHANGE"]},
+  { id:"MEMORY",label:"记忆",color:"#a78bfa",atoms:["MEMORY_READ","MEMORY_WRITE","MEMORY_MODIFY","MEMORY_SHARE","MEMORY_DELETE","MEMORY_RESTORE"]},
+  { id:"EXEC",  label:"执行",color:"#6b7280",atoms:["CODE_GENERATE","CODE_EXECUTE","PROCESS_CREATE","PROCESS_CONTROL","SYSTEM_CONFIGURE","SYSTEM_PRIVILEGE_CHANGE","SYSTEM_RESOURCE_CONSUME","SYSTEM_CALL"]},
+];
+
+const HIGH_RISK = new Set(["INTENT.MODIFY","INTENT.DELEGATE","PLAN.FALLBACK","AGENT.CONFIGURE","AGENT.SHARE_CONTEXT","MODEL.SWITCH","MODEL.SEND_CONTEXT","TOOL.REGISTER","TOOL.CONFIGURE","TOOL.CHAIN","AUTH.IDENTITY_IMPERSONATE","AUTH.CREDENTIAL_DISCOVER","AUTH.CREDENTIAL_ACQUIRE","AUTH.CREDENTIAL_TRANSFER","AUTH.CREDENTIAL_REVOKE","AUTH.PERMISSION_REQUEST","AUTH.PERMISSION_MODIFY","DATA.DATA_TRANSFER","DATA.DATA_PUBLISH","DATA.RESOURCE_DELETE","DATA.RESOURCE_PERMISSION_CHANGE","MEMORY.MEMORY_SHARE","MEMORY.MEMORY_DELETE","EXEC.PROCESS_CONTROL","EXEC.SYSTEM_CONFIGURE","EXEC.SYSTEM_PRIVILEGE_CHANGE"]);
+
+const RINGS = ["base","low","medium","high","critical"];
+const RING_COLORS = { base:"#22c55e", low:"#94a3b8", medium:"#eab308", high:"#f97316", critical:"#ef4444" };
+const RING_RADII = [70, 140, 210, 275, 335];
+
+// Build atoms
+const atoms = [];
+const atomMap = {};
+DOMAINS.forEach((dom, di) => {
+  dom.atoms.forEach((name, idx) => {
+    const fid = `${dom.id}.${name}`;
+    const isHigh = HIGH_RISK.has(fid);
+    const rl = isHigh ? 3 : (dom.id==="AUTH"||dom.id==="EXEC"?2:1);
+    const ring = RINGS[rl];
+    const a = { id:fid, domain:dom.id, dIdx:di, aIdx:idx, aTotal:dom.atoms.length, domLabel:dom.label, domColor:dom.color, name, flabel:name.replace(/_/g," ").slice(0,14), isHigh, risk:rl, ring };
+    atoms.push(a); atomMap[fid] = a;
+  });
+});
+
+// Sessions + behavior chains
+const sessions = {
+  review: {
+    name: "审查支付模块安全性", agent: "Codex", risk: "High",
+    orgBoundary: 3, taskBoundary: 1,
+    chain: [
+      { atom:"INTENT.RECEIVE", verdict:"allow", time:"12:20:01", rule:"Intent analysis" },
+      { atom:"PLAN.SELECT",    verdict:"allow", time:"12:20:03", rule:"Tool selection" },
+      { atom:"DATA.DATA_READ", verdict:"allow", time:"12:20:06", rule:"File access allowed" },
+      { atom:"TOOL.INVOKE",    verdict:"allow", time:"12:20:09", rule:"MCP tool invoked" },
+      { atom:"AUTH.CREDENTIAL_USE", verdict:"alert", time:"12:20:12", rule:"Credential access flagged" },
+      { atom:"DATA.DATA_TRANSFER",  verdict:"block", time:"12:20:15", rule:"External transfer blocked" },
+    ]
+  },
+  docs: { name:"整理架构设计文档", agent:"OpenCode", risk:"Low", orgBoundary:3, taskBoundary:1, chain:[{ atom:"INTENT.RECEIVE",verdict:"allow",time:"11:05:01",rule:"Analysis"},{ atom:"MODEL.INVOKE",verdict:"allow",time:"11:05:04",rule:"Model call"},{ atom:"DATA.DATA_READ",verdict:"allow",time:"11:05:08",rule:"Read allowed"}] },
+  deploy: { name:"部署测试环境服务", agent:"Codex", risk:"Medium", orgBoundary:3, taskBoundary:2, chain:[{ atom:"INTENT.RECEIVE",verdict:"allow",time:"10:30:01",rule:"Analysis"},{ atom:"PLAN.CREATE",verdict:"allow",time:"10:30:02",rule:"Plan created"},{ atom:"EXEC.CODE_EXECUTE",verdict:"allow",time:"10:30:05",rule:"Execution allowed"},{ atom:"EXEC.PROCESS_CREATE",verdict:"block",time:"10:30:09",rule:"Process spawn denied"}] }
+};
+let currentSession = 'review';
+let viewMode = 'orbit', compareMode = true, focusDomain = null;
+let playbackIdx = -1;
+
+function selectSession(el, id) {
+  document.querySelectorAll('.sess').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  currentSession = id;
+  playbackIdx = -1;
+  render();
+  updateInspector(null);
+}
+
+function setView(mode) {
+  viewMode = mode;
+  document.querySelectorAll('#viewTabs .tab').forEach((t,i) => t.classList.toggle('active',(mode==='orbit'&&i===0)||(mode==='grid'&&i===1)));
+  render();
+}
+
+function toggleMode(btn) { compareMode = !compareMode; btn.classList.toggle('pressed', compareMode); render(); }
+function toggleFocus(btn) { focusDomain = focusDomain ? null : sessions[currentSession].chain[0]?.atom.split('.')[0] || null; btn.classList.toggle('pressed', !!focusDomain); render(); }
+
+// ====== ORBIT VIEW ======
+function renderOrbit() {
+  const svg = document.getElementById('orbitSvg');
+  const CX = 350, CY = 370;
+  const domArc = Math.PI*2/DOMAINS.length;
+  const sess = sessions[currentSession];
+
+  let html = `<rect width="700" height="700" fill="#fff"/>`;
+
+  // Concentric rings
+  RINGS.forEach((ring, i) => {
+    const r = RING_RADII[i];
+    const isOrg = i === sess.orgBoundary;
+    const isTask = i === sess.taskBoundary;
+    const stroke = isOrg ? RING_COLORS.low : isTask ? RING_COLORS.high : RING_COLORS[ring];
+    const dash = isOrg ? '2,1' : isTask ? '6,3' : '3,2';
+    const sw = isOrg ? 2.5 : isTask ? 2 : 1.2;
+    const opacity = isOrg ? 0.5 : isTask ? 0.7 : 0.3;
+    html += `<circle cx="${CX}" cy="${CY}" r="${r}" fill="${RING_COLORS[ring]}08" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${dash}" opacity="${opacity}"/>`;
+    html += `<text x="${CX}" y="${CY - r - 4}" text-anchor="middle" font-size="9" font-weight="700" fill="${stroke}" opacity="${opacity}">${ring.toUpperCase()}</text>`;
+  });
+
+  // Domain radial lines + labels
+  DOMAINS.forEach((dom, di) => {
+    const angle = -Math.PI/2 + di * domArc;
+    const x2 = CX + Math.cos(angle) * (RING_RADII[4] + 8);
+    const y2 = CY + Math.sin(angle) * (RING_RADII[4] + 8);
+    html += `<line x1="${CX}" y1="${CY}" x2="${x2}" y2="${y2}" stroke="${dom.color}" stroke-width="0.8" opacity="0.2"/>`;
+    const la = -Math.PI/2 + (di + 0.5) * domArc;
+    const lx = CX + Math.cos(la) * (RING_RADII[4] + 36);
+    const ly = CY + Math.sin(la) * (RING_RADII[4] + 36);
+    html += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="10" font-weight="700" fill="${dom.color}">${dom.label}</text>`;
+  });
+
+  // Organization boundary (dashed line at org ring)
+  if (compareMode) {
+    const orgR = RING_RADII[sess.orgBoundary];
+    html += `<circle cx="${CX}" cy="${CY}" r="${orgR}" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4,2" opacity="0.6"><animate attributeName="stroke-dashoffset" from="0" to="-12" dur="2s" repeatCount="indefinite"/></circle>`;
+  }
+
+  // Task boundary (dashed line at task ring)
+  const taskR = RING_RADII[sess.taskBoundary];
+  html += `<circle cx="${CX}" cy="${CY}" r="${taskR}" fill="none" stroke="#f97316" stroke-width="2" stroke-dasharray="6,3" opacity="0.7"><animate attributeName="stroke-dashoffset" from="0" to="-18" dur="2.5s" repeatCount="indefinite"/></circle>`;
+
+  // Atoms on rings
+  atoms.forEach(a => {
+    if (focusDomain && a.domain !== focusDomain) return;
+    const ri = Math.min(a.risk, 4);
+    const r = RING_RADII[ri];
+    const arcStart = -Math.PI/2 + a.dIdx * domArc;
+    const frac = (a.aIdx + 0.5) / a.aTotal;
+    const angle = arcStart + frac * domArc;
+    const x = CX + Math.cos(angle) * r;
+    const y = CY + Math.sin(angle) * r;
+    const size = a.isHigh ? 3.5 : 3;
+    const fillColor = RING_COLORS[a.ring];
+    const opacity = focusDomain && a.domain !== focusDomain ? 0.15 : 0.7;
+    html += `<circle cx="${x}" cy="${y}" r="${size}" fill="${fillColor}" stroke="${a.domColor}" stroke-width="0.5" opacity="${opacity}" cursor="pointer" data-aid="${a.id}"/>`;
+  });
+
+  // Behavior chain points (with connecting lines)
+  const chainPoints = [];
+  if (playbackIdx >= 0) {
+    sess.chain.slice(0, playbackIdx + 1).forEach((step, si) => {
+      const a = atomMap[step.atom];
+      if (!a || (focusDomain && a.domain !== focusDomain)) return;
+      const ri = Math.min(a.risk, 4);
+      const r = RING_RADII[ri];
+      const arcStart = -Math.PI/2 + a.dIdx * domArc;
+      const frac = (a.aIdx + 0.5) / a.aTotal;
+      const angle = arcStart + frac * domArc;
+      const x = CX + Math.cos(angle) * r;
+      const y = CY + Math.sin(angle) * r;
+      const color = step.verdict === 'block' ? '#ef4444' : step.verdict === 'alert' ? '#f97316' : '#3b82f6';
+      chainPoints.push({ x, y, color, step, a });
+
+      // Line to previous
+      if (si > 0) {
+        const prev = chainPoints[si - 1];
+        html += `<line x1="${prev.x}" y1="${prev.y}" x2="${x}" y2="${y}" stroke="${prev.color}" stroke-width="1.2" opacity="0.5"/>`;
+      }
+      // Point
+      html += `<circle cx="${x}" cy="${y}" r="${step.verdict==='block'?7:5}" fill="${color}" stroke="#fff" stroke-width="1.5" cursor="pointer" data-step="${si}"/>`;
+      if (step.verdict === 'block') {
+        html += `<circle cx="${x}" cy="${y}" r="10" fill="none" stroke="#ef4444" stroke-width="1.5" opacity="0.4"><animate attributeName="r" values="10;16;10" dur="1.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.4;0.1;0.4" dur="1.5s" repeatCount="indefinite"/></circle>`;
+      }
+    });
+  }
+
+  svg.innerHTML = html;
+
+  // Click handlers
+  svg.querySelectorAll('[data-aid]').forEach(el => el.addEventListener('click', e => {
+    const a = atomMap[el.getAttribute('data-aid')];
+    updateInspector(a);
+  }));
+  svg.querySelectorAll('[data-step]').forEach(el => el.addEventListener('click', e => {
+    const si = parseInt(el.getAttribute('data-step'));
+    playbackIdx = si;
+    const step = sessions[currentSession].chain[si];
+    updateInspector(atomMap[step.atom], step);
+    render();
+  }));
+
+  // Title
+  document.getElementById('orbitTitle').textContent = `Policy Orbit · ${sess.name}`;
+  document.getElementById('orbitSub').textContent = `组织边界: Ring ${sess.orgBoundary} · 任务边界: Ring ${sess.taskBoundary} · ${atoms.length} 原子`;
+  document.getElementById('mExecuted').textContent = sess.chain.length;
+  document.getElementById('mBlocked').textContent = sess.chain.filter(s => s.verdict === 'block').length;
+}
+
+// ====== GRID VIEW ======
+function renderGrid() {
+  const svg = document.getElementById('orbitSvg');
+  const W = 1360, H = 700;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const domainW = 140, padX = 40, nodeW = 118, nodeH = 38;
+  const maxAtoms = Math.max(...DOMAINS.map(d => d.atoms.length));
+  const sess = sessions[currentSession];
+
+  let html = `<rect width="${W}" height="${H}" fill="#fff"/>`;
+
+  // Domains
+  DOMAINS.forEach((dom, di) => {
+    const cx = padX + di * domainW + domainW/2;
+    const sy = 50 + (maxAtoms - dom.atoms.length) * nodeH / 2;
+    html += `<rect x="${cx - domainW/2 + 4}" y="${sy}" width="${domainW - 8}" height="${dom.atoms.length * nodeH + 8}" rx="8" fill="${dom.color}10" stroke="${dom.color}" stroke-width="1" stroke-dasharray="4,3"/>`;
+    html += `<text x="${cx}" y="24" text-anchor="middle" font-size="12" font-weight="700" fill="${dom.color}">${dom.label}</text>`;
+  });
+
+  // Edges
+  const edges = []; const posMap = {};
+  atoms.forEach(a => { const di = a.dIdx; const dom = DOMAINS[di]; const cx = padX + di * domainW + domainW/2; const sy = 50 + (maxAtoms - dom.atoms.length) * nodeH / 2; const y = sy + a.aIdx * nodeH + nodeH/2; posMap[a.id] = { x: cx, y }; });
+  DOMAINS.forEach(dom => { for(let i=0;i<dom.atoms.length-1;i++) edges.push([`${dom.id}.${dom.atoms[i]}`,`${dom.id}.${dom.atoms[i+1]}`]); });
+  edges.forEach(([s,t]) => { const a=posMap[s],b=posMap[t]; if(!a||!b)return; html+=`<line x1="${a.x}" y1="${a.y+19}" x2="${b.x}" y2="${b.y-19}" stroke="#d4d8df" stroke-width="0.8" opacity="0.4"/>`; });
+
+  // Nodes
+  atoms.forEach(a => {
+    const p = posMap[a.id]; if (!p) return;
+    const isSel = false, fillColor = a.isHigh ? '#fff7ed' : '#f8fafc';
+    const strokeColor = a.isHigh ? '#f97316' : '#cbd2da';
+    html += `<rect x="${p.x - nodeW/2}" y="${p.y - nodeH/2}" width="${nodeW}" height="${nodeH}" rx="5" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.2" cursor="pointer" data-aid="${a.id}"/>`;
+    html += `<text x="${p.x}" y="${p.y-3}" text-anchor="middle" font-size="8.5" font-weight="600" fill="#18212f" data-aid="${a.id}" style="pointer-events:none">${a.flabel}</text>`;
+    html += `<text x="${p.x}" y="${p.y+10}" text-anchor="middle" font-size="7" fill="#84909c" data-aid="${a.id}" style="pointer-events:none">${a.id}</text>`;
+  });
+
+  // Chain points on grid (if in playback)
+  if (playbackIdx >= 0) {
+    sess.chain.slice(0, playbackIdx + 1).forEach((step, si) => {
+      const a = atomMap[step.atom]; if (!a) return;
+      const p = posMap[a.id]; if (!p) return;
+      const color = step.verdict === 'block' ? '#ef4444' : step.verdict === 'alert' ? '#f97316' : '#3b82f6';
+      html += `<circle cx="${p.x}" cy="${p.y}" r="${step.verdict==='block'?8:6}" fill="${color}" stroke="#fff" stroke-width="2" data-step="${si}" cursor="pointer"/>`;
+    });
+  }
+
+  svg.innerHTML = html;
+  svg.querySelectorAll('[data-aid]').forEach(el => el.addEventListener('click', e => { updateInspector(atomMap[el.getAttribute('data-aid')]); }));
+  svg.querySelectorAll('[data-step]').forEach(el => el.addEventListener('click', e => { playbackIdx = parseInt(el.getAttribute('data-step')); render(); updateInspector(atomMap[sess.chain[playbackIdx].atom], sess.chain[playbackIdx]); }));
+
+  document.getElementById('orbitTitle').textContent = `能力格栅 · ${sess.name}`;
+  document.getElementById('orbitSub').textContent = `${DOMAINS.length} 域 × 平均 ${Math.round(atoms.length/DOMAINS.length)} 原子 = ${atoms.length} 节点`;
+}
+
+function updateInspector(a, step) {
+  if (!a && step) a = atomMap[step.atom];
+  if (!a) {
+    document.getElementById('inspAtom').textContent = '—'; document.getElementById('inspState').textContent = '—'; document.getElementById('inspDomain').textContent = '—'; document.getElementById('inspRing').textContent = '—'; document.getElementById('inspBoundary').textContent = '—'; document.getElementById('inspRule').textContent = '—';
+    document.getElementById('inspDecision').style.display = 'none';
+    document.getElementById('inspLocal').textContent = '—'; document.getElementById('inspSemantic').textContent = '—'; document.getElementById('inspGraph').textContent = '—'; document.getElementById('inspLatency').textContent = '—';
+    return;
+  }
+  document.getElementById('inspAtom').textContent = a.name.replace(/_/g, ' ');
+  document.getElementById('inspState').textContent = a.isHigh ? 'HIGH RISK' : 'NORMAL';
+  document.getElementById('inspState').className = 'badge ' + (a.isHigh ? 'r' : 'g');
+  document.getElementById('inspDomain').textContent = a.domLabel;
+  document.getElementById('inspRing').textContent = a.ring.toUpperCase();
+  const sess = sessions[currentSession];
+  document.getElementById('inspBoundary').textContent = a.risk <= sess.taskBoundary ? 'WITHIN' : 'OUTSIDE';
+  document.getElementById('inspRule').textContent = step ? step.rule : '—';
+
+  if (step && step.verdict !== 'allow') {
+    document.getElementById('inspDecision').style.display = 'block';
+    document.getElementById('inspVerdict').textContent = step.verdict === 'block' ? 'POLICY GATE · BLOCK' : 'POLICY GATE · ALERT';
+    document.getElementById('inspVerdict').style.color = step.verdict === 'block' ? '#b42318' : '#a35b00';
+    document.getElementById('inspReason').textContent = step.verdict === 'block' ? '行为超出任务允许权限边界' : '行为接近边界，需复核';
+    document.getElementById('inspRequired').textContent = a.domLabel + ' Ring ' + (a.risk + 1);
+    document.getElementById('inspAllowed').textContent = a.domLabel + ' Ring ' + (sess.taskBoundary + 1);
+    document.getElementById('inspResult').textContent = 'DENY';
+    document.getElementById('inspResult').className = 'r';
+  } else {
+    document.getElementById('inspDecision').style.display = 'none';
+  }
+  document.getElementById('inspLocal').textContent = step ? (step.verdict === 'block' ? 'MATCH' : 'ALLOW') : '—';
+  document.getElementById('inspSemantic').textContent = step ? (step.verdict === 'block' ? '0.91' : '0.45') : '—';
+  document.getElementById('inspGraph').textContent = a.risk <= sess.taskBoundary ? 'WITHIN' : 'OUTSIDE';
+  document.getElementById('inspLatency').textContent = '6.8 ms';
+}
+
+function render() {
+  if (viewMode === 'orbit') renderOrbit();
+  else renderGrid();
+}
+
+// Playback controls via keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { playbackIdx = Math.min(playbackIdx + 1, sessions[currentSession].chain.length - 1); render(); updateInspector(null, sessions[currentSession].chain[playbackIdx]); }
+  if (e.key === 'ArrowLeft') { playbackIdx = Math.max(playbackIdx - 1, 0); render(); updateInspector(null, sessions[currentSession].chain[playbackIdx]); }
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); playbackIdx = 0; render(); updateInspector(null, sessions[currentSession].chain[0]); }
+});
+
+// Init
+render();
+</script>
+</body></html>

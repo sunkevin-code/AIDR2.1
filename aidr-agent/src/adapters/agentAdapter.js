@@ -29,6 +29,38 @@ class AgentAdapter {
 
   getManifest() { return { ...this.manifest, capabilities: [...this.manifest.capabilities] }; }
 
+  registerAgent(payload = {}) { return this.normalize({ ...payload, event: "agent.register", hook_event_name: "AgentRegister" }); }
+  onSessionStart(payload = {}) { return this.normalize({ ...payload, event: "session.created", hook_event_name: "SessionStart" }); }
+  onPrompt(payload = {}) { return this.normalize({ ...payload, event: "prompt.submit", hook_event_name: "UserPromptSubmit" }); }
+  onToolCall(payload = {}) { return this.normalize({ ...payload, event: "tool.execute.before", hook_event_name: "PreToolUse" }); }
+  onFileAccess(payload = {}) {
+    const toolInput = payload.tool_input || payload.toolInput || { path: payload.path, operation: payload.operation || payload.access };
+    return this.normalize({ ...payload, event: "file.access", hook_event_name: "PreToolUse", tool_name: payload.tool_name || "filesystem", tool_input: toolInput });
+  }
+  onProcessCreate(payload = {}) {
+    const toolInput = payload.tool_input || payload.toolInput || { pid: payload.pid, commandLine: payload.commandLine || payload.command_line };
+    return this.normalize({ ...payload, event: "process.create", hook_event_name: "PreToolUse", tool_name: payload.tool_name || "process", tool_input: toolInput });
+  }
+  onNetworkRequest(payload = {}) {
+    const toolInput = payload.tool_input || payload.toolInput || { url: payload.url, host: payload.host, port: payload.port, method: payload.method };
+    return this.normalize({ ...payload, event: "network.request", hook_event_name: "PreToolUse", tool_name: payload.tool_name || "network", tool_input: toolInput });
+  }
+  onResponse(payload = {}) { return this.normalize({ ...payload, event: "tool.execute.after", hook_event_name: "PostToolUse" }); }
+  onSessionEnd(payload = {}) { return this.normalize({ ...payload, event: "session.deleted", hook_event_name: "Stop" }); }
+
+  dispatch(payload = {}) {
+    const event = String(payload.hook_event_name || payload.event || payload.type || "").toLowerCase();
+    if (event.includes("session") && (event.includes("created") || event.includes("start"))) return this.onSessionStart(payload);
+    if (event.includes("session") && (event.includes("deleted") || event.includes("idle") || event.includes("stop"))) return this.onSessionEnd(payload);
+    if (event.includes("tool") && (event.includes("after") || event.includes("response"))) return this.onResponse(payload);
+    if (event.includes("tool") || event.includes("permission")) return this.onToolCall(payload);
+    if (event.includes("file")) return this.onFileAccess(payload);
+    if (event.includes("process")) return this.onProcessCreate(payload);
+    if (event.includes("network")) return this.onNetworkRequest(payload);
+    if (event.includes("register") || event.includes("discover")) return this.registerAgent(payload);
+    return this.onPrompt(payload);
+  }
+
   matches(payload = {}) {
     return String(payload.agent || payload.agent_id || payload.agent_type || "").toLowerCase() === this.id.toLowerCase();
   }
@@ -140,6 +172,11 @@ class AgentAdapterRegistry {
   normalize(payload = {}) {
     const adapter = this.resolve(payload);
     return adapter ? adapter.normalize(payload) : payload;
+  }
+
+  dispatch(payload = {}) {
+    const adapter = this.resolve(payload);
+    return adapter ? { adapter: adapter.id, manifest: adapter.getManifest(), payload: adapter.dispatch(payload) } : { adapter: null, manifest: null, payload };
   }
 
   validate(payload = {}) {

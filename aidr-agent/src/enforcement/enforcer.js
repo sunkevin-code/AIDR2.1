@@ -65,9 +65,9 @@ class Enforcer {
 
   async _enforceNetwork(action) {
     switch (action.action) {
-      case "block_ip": return this.bridge.blockIp(action.params?.ip, { pid: action.params?.pid });
-      case "block_domain": return this.bridge.blockDomain(action.params?.domain, { pid: action.params?.pid });
-      case "block_port": return this.bridge.blockPort(action.params?.port, { pid: action.params?.pid });
+      case "block_ip": return this.bridge.blockIp(action.params?.ip, { pid: action.params?.pid, program: action.params?.program });
+      case "block_domain": return this.bridge.blockDomain(action.params?.domain, { pid: action.params?.pid, program: action.params?.program });
+      case "block_port": return this.bridge.blockPort(action.params?.port, { pid: action.params?.pid, program: action.params?.program });
       case "clear_rules": return this.bridge.clearNetworkRules();
       case "isolate_host":
         throw new Error("global_host_isolation_disabled_use_scoped_firewall_rules");

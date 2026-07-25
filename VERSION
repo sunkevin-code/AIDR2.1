@@ -1,0 +1,4 @@
+AIDR Endpoint version: 2.3.0-20260722.2325
+Release label: v2.3.0-20260722.2325
+Baseline: rollback to the 2026-07-22 23:23-23:25 local UI/runtime baseline
+Build: embedded legacy control-plane UI with the restored endpoint runtime

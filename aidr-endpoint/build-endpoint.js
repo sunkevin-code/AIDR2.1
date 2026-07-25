@@ -30,7 +30,11 @@ function collectFiles(directory, files = []) {
     const relativeName = path.relative(agentRoot, full).replace(/\\/g, "/");
     if (/^(?:logs|\.git)(?:\/|$)/.test(relativeName)) continue;
     if (entry.isDirectory()) collectFiles(full, files);
-    else if (entry.isFile()) files.push([relativeName, fs.readFileSync(full).toString("base64")]);
+    else if (entry.isFile()) {
+      const bytes = fs.readFileSync(full);
+      const digest = require("crypto").createHash("sha256").update(bytes).digest("hex");
+      files.push([relativeName, bytes.toString("base64"), digest]);
+    }
   }
   return files;
 }
@@ -39,11 +43,16 @@ const payload = zlib.gzipSync(Buffer.from(JSON.stringify({
   format: 1,
   files: collectFiles(agentRoot)
 }), "utf8"), { level: 9 }).toString("base64");
+const uiSource = fs.readFileSync(path.join(root, "ui", "index.html"), "utf8");
+const uiRuntime = fs.readFileSync(path.join(root, "ui", "runtime-adapter.js"), "utf8");
+const canonicalUi = uiSource.includes("id=\"aidr-runtime-adapter\"")
+  ? uiSource
+  : uiSource.replace("</body>", `<script id="aidr-runtime-adapter">${uiRuntime}</script></body>`);
 const endpointSource = fs.readFileSync(path.join(root, "endpoint.js"), "utf8");
 childProcess.execFileSync(process.execPath, [path.join(root, "build-service-host.js")], { stdio: "inherit" });
 const serviceHostPath = path.join(root, "native", "AIDR.ServiceHost.exe");
 const serviceHostPayload = fs.readFileSync(serviceHostPath).toString("base64");
-fs.writeFileSync(bundle, `globalThis.__AIDR_AGENT_PAYLOAD=${JSON.stringify(payload)};\nglobalThis.__AIDR_SERVICE_HOST_PAYLOAD=${JSON.stringify(serviceHostPayload)};\n${endpointSource}`, "utf8");
+fs.writeFileSync(bundle, `globalThis.__AIDR_AGENT_PAYLOAD=${JSON.stringify(payload)};\nglobalThis.__AIDR_SERVICE_HOST_PAYLOAD=${JSON.stringify(serviceHostPayload)};\nglobalThis.__AIDR_UI_HTML__=${JSON.stringify(canonicalUi)};\n${endpointSource}`, "utf8");
 fs.writeFileSync(config, JSON.stringify({
   main: bundle,
   output: blob,

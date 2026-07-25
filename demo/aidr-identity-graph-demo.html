@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIDR — 身份图谱 (Demo)</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;color:#18212f;background:#f2f4f7;font-size:14px}
+*{box-sizing:border-box}body{margin:0}
+.app{display:grid;grid-template-columns:200px 1fr;min-height:100vh}
+.sidebar{background:#171c24;color:#d8dee8;padding:18px 10px}.brand{padding:0 10px 16px;border-bottom:1px solid #343b47}.brand h1{font-size:18px;margin:0;color:#fff}.brand p{margin:3px 0 0;color:#8fd5c4;font-size:11px}
+nav{display:grid;gap:3px;padding-top:14px}.nav-btn{border:0;background:transparent;color:#adb7c6;text-align:left;padding:8px 10px;border-radius:5px;cursor:pointer;font-size:12px}.nav-btn:hover,.nav-btn.active{background:#29313d;color:#fff}
+.main{min-width:0}.topbar{height:48px;padding:0 20px;background:#fff;border-bottom:1px solid #dfe3e8;display:flex;align-items:center;justify-content:space-between}
+.content{padding:16px 20px;max-width:1400px}
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600}
+.badge.g{background:#e6f4ef;color:#237a66}.badge.y{background:#fff2d8;color:#8b5400}.badge.r{background:#fdebea;color:#b42318}
+.badge.n{background:#eef1f4;color:#495464}.muted{color:#687385}.good{color:#237a66}.warn{color:#a35b00}.bad{color:#b42318}
+
+/* Identity chain */
+.chain-panel{background:#fff;border:1px solid #dfe3e8;border-radius:7px;margin-bottom:14px;overflow:hidden}
+.chain-h{padding:11px 14px;border-bottom:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center}
+.chain-h h3{margin:0;font-size:13px}
+.chain-body{padding:18px;display:flex;justify-content:center;align-items:center;flex-wrap:wrap}
+.chain-node{display:flex;flex-direction:column;align-items:center;position:relative}
+.chain-icon{width:48px;height:48px;border-radius:10px;display:grid;place-items:center;font-size:18px;font-weight:700}
+.chain-icon.user{background:#e9f1fb;color:#2563a8}.chain-icon.identity{background:#e5f4f1;color:#158071}
+.chain-icon.agent{background:#1a2b3c;color:#8fd5c4}.chain-icon.session{background:#f0f0e4;color:#6b5b3d}
+.chain-icon.resource{background:#fcf0e6;color:#a35b00}
+.chain-label{font-size:10px;font-weight:600;margin-top:6px;text-align:center;max-width:80px}
+.chain-meta{font-size:9px;color:#687385;margin-top:2px;text-align:center;max-width:80px}
+.chain-arrow{width:36px;height:2px;background:#cbd2da;margin:0 6px;position:relative;flex-shrink:0}
+.chain-arrow::after{content:"";position:absolute;right:-2px;top:-3px;border:4px solid transparent;border-left:6px solid #cbd2da}
+.chain-trust{font-size:9px;font-weight:700;color:#237a66;text-align:center;margin-top:2px}
+
+/* Identity card grid */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.card{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:14px}.card h3{font-size:12px;margin:0 0 10px}
+
+/* Impersonation */
+.imp-row{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #edf0f2;font-size:11px}
+.imp-row:last-child{border-bottom:0}.imp-agent{font-weight:600}.imp-match{font-size:10px;font-weight:700}
+.imp-act{color:#687385;font-size:10px}
+
+/* Trust table */
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{padding:7px 10px;border-bottom:1px solid #edf0f2;text-align:left}
+th{background:#f7f9fa;color:#687385;font-size:10px;font-weight:600}tr:hover{background:#f5fbf9}
+tr:last-child td{border-bottom:0}
+
+/* Path viz */
+.path-box{border:1px solid #dfe3e8;border-radius:6px;padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.path-node{display:flex;align-items:center;gap:4px;font-size:10px}
+.path-dot{width:8px;height:8px;border-radius:50%}
+.path-dot.user{background:#2563a8}.path-dot.identity{background:#158071}.path-dot.agent{background:#8fd5c4}
+.path-dot.session{background:#6b5b3d}.path-dot.resource{background:#a35b00}
+.path-arrow{color:#cbd2da;font-size:10px}
+
+/* Agent summary bar */
+.summary-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.stat{background:#fff;border:1px solid #dfe3e8;border-radius:7px;padding:10px 13px}
+.stat span{display:block;color:#687385;font-size:10px}.stat b{display:block;font-size:20px;margin-top:4px}
+
+@media(max-width:960px){.g2{grid-template-columns:1fr}.summary-strip{grid-template-columns:1fr 1fr}}
+</style>
+</head><body>
+<div class="app">
+<aside class="sidebar">
+<div class="brand"><h1>AIDR</h1><p>Zero Trust Runtime</p></div>
+<nav>
+<div class="nav-btn">概览</div><div class="nav-btn">会话</div><div class="nav-btn">AI Agents</div>
+<div class="nav-btn">策略</div><div class="nav-btn">行为</div>
+<div class="nav-btn active">🔐 身份图谱</div>
+<div class="nav-btn">Semantic Model</div><div class="nav-btn">系统</div>
+</nav>
+</aside>
+<div class="main">
+<div class="topbar"><h2 style="font-size:15px;margin:0">身份图谱 · Identity Graph</h2><span style="font-size:11px;color:#687385">IdentityGraph Engine — 用户→身份→Agent 信任链 + 冒充检测</span></div>
+<div class="content">
+
+<!-- Stats -->
+<div class="summary-strip">
+<div class="stat"><span>已注册身份</span><b class="good">6</b></div>
+<div class="stat"><span>活跃 Agent</span><b>3</b></div>
+<div class="stat"><span>信任链路径</span><b>5</b></div>
+<div class="stat"><span>冒充检测</span><b class="bad">1</b></div>
+</div>
+
+<!-- Identity Chain Visualization -->
+<div class="chain-panel">
+<div class="chain-h"><h3>🔗 身份信任链 <span style="font-size:10px;color:#687385;font-weight:400">resolveIdentity() → 节点间连边为 owns/accesses 关系</span></h3><select><option>codex-vm-01</option><option>opencode-ws-01</option></select></div>
+<div class="chain-body">
+<div class="chain-node">
+<div class="chain-icon user">👤</div><div class="chain-label">Alice</div><div class="chain-meta">user · trust:1.0</div>
+</div>
+<div class="chain-arrow"><div class="chain-trust">×1.0</div></div>
+<div class="chain-node">
+<div class="chain-icon identity">🆔</div><div class="chain-label">alice@corp</div><div class="chain-meta">identity · trust:0.95</div>
+</div>
+<div class="chain-arrow"><div class="chain-trust">×0.9</div></div>
+<div class="chain-node">
+<div class="chain-icon agent">🤖</div><div class="chain-label">codex-vm-01</div><div class="chain-meta">agent · trust:0.85</div>
+</div>
+<div class="chain-arrow"><div class="chain-trust">→</div></div>
+<div class="chain-node">
+<div class="chain-icon session">💬</div><div class="chain-label">修复 API</div><div class="chain-meta">session · active</div>
+</div>
+<div class="chain-arrow"><div class="chain-trust">→</div></div>
+<div class="chain-node">
+<div class="chain-icon resource">📁</div><div class="chain-label">workspace</div><div class="chain-meta">resource</div>
+</div>
+</div>
+<div style="padding:8px 14px;border-top:1px solid #e7eaee;display:flex;justify-content:space-between;align-items:center">
+<span style="font-size:11px"><b style="color:#237a66">链信任度: 0.86</b> <span class="muted">(1.0×0.9×0.95)</span> · 状态: <span class="badge g">RESOLVED</span> · 风险减免: <span class="good">-14%</span></span>
+<span class="muted" style="font-size:10px">identityGraph.resolveIdentity("codex-vm-01")</span>
+</div>
+</div>
+
+<!-- Impersonation + Paths -->
+<div class="g2">
+<div class="card">
+<h3>🚨 冒充检测 <span class="muted" style="font-weight:400">detectImpersonation()</span></h3>
+<div class="imp-row"><span class="imp-agent">codex-vm-01</span><span>声称: <b style="color:#237a66">alice@corp</b></span><span class="imp-match good">✓ 匹配</span><span class="badge g">信任 0.86</span><span class="imp-act">实际: alice@corp</span></div>
+<div class="imp-row"><span class="imp-agent">opencode-ws-01</span><span>声称: <b style="color:#b42318">root</b></span><span class="imp-match bad">✗ 冒充!</span><span class="badge r">严重</span><span class="imp-act">实际: bob@corp</span></div>
+<div class="imp-row"><span class="imp-agent">codex-vm-02</span><span>声称: <b style="color:#a35b00">unknown</b></span><span class="imp-match warn">? 未识别</span><span class="badge y">中风险</span><span class="imp-act">无身份链</span></div>
+</div>
+<div class="card">
+<h3>🛤️ 信任路径 <span class="muted" style="font-weight:400">getIdentityPaths() · BFS</span></h3>
+<div class="path-box"><span class="path-node"><span class="path-dot user"></span>Alice</span><span class="path-arrow">→</span><span class="path-node"><span class="path-dot identity"></span>alice@corp</span><span class="path-arrow">→</span><span class="path-node"><span class="path-dot agent"></span>codex-vm-01</span><span class="path-arrow">→</span><span class="path-node"><span class="path-dot resource"></span>workspace</span><span style="margin-left:auto;color:#237a66;font-size:11px;font-weight:700">trust: 0.86</span></div>
+<div class="path-box"><span class="path-node"><span class="path-dot user"></span>Bob</span><span class="path-arrow">→</span><span class="path-node"><span class="path-dot identity"></span>bob@corp</span><span class="path-arrow">→</span><span class="path-node"><span class="path-dot agent"></span>opencode-ws-01</span><span class="path-arrow">→</span><span class="path-node"><span class="path-dot session"></span>"部署 staging"</span><span style="margin-left:auto;color:#a35b00;font-size:11px;font-weight:700">trust: 0.62</span></div>
+<div class="path-box"><span class="path-node"><span class="path-dot agent"></span>codex-vm-02</span><span style="margin-left:auto;color:#687385;font-size:10px">无身份链 · 独立运行</span></div>
+</div>
+</div>
+
+<!-- Agent Summary Table -->
+<div class="card" style="margin-bottom:14px">
+<h3>📊 Agent 身份摘要 <span class="muted" style="font-weight:400">getAgentSummary()</span></h3>
+<div style="overflow:auto"><table>
+<thead><tr><th>Agent</th><th>身份</th><th>用户</th><th>信任度</th><th>会话数</th><th>风险均分</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td><b>codex-vm-01</b></td><td>alice@corp</td><td>Alice</td><td><span class="good">0.86</span></td><td>2</td><td>35</td><td><span class="badge g">已解析</span></td></tr>
+<tr><td><b>opencode-ws-01</b></td><td>bob@corp</td><td>Bob</td><td><span class="warn">0.62</span></td><td>1</td><td>22</td><td><span class="badge r">冒充检测</span></td></tr>
+<tr><td><b>codex-vm-02</b></td><td colspan="2" style="color:#687385">未注册</td><td><span class="bad">—</span></td><td>0</td><td>—</td><td><span class="badge n">未解析</span></td></tr>
+</tbody>
+</table></div>
+</div>
+
+<!-- Integration note -->
+<div style="padding:10px 14px;background:#f7f9fa;border-radius:6px;font-size:11px;color:#687385;display:flex;gap:20px">
+<span><b style="color:#176f62">analyzePrompt() 集成</b></span>
+<span>已解析身份 → risk × trustFactor（最高 -40%风险分）</span>
+<span>未解析 → risk +10，标记 identity_unresolved</span>
+<span>冒充 → risk +45~60，标记 identity_impersonation</span>
+</div>
+
+</div></div>
+<script>
+document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', function(){
+  document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('active'));
+  this.classList.add('active');
+}));
+</script>
+</body></html>

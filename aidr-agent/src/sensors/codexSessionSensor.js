@@ -19,6 +19,11 @@ class CodexSessionSensor {
     this.rolloutFiles = {};
     this.rolloutMessageKeys = new Map();
     this.rolloutContexts = new Map();
+    this.logsDbFingerprint = null;
+    this.transportDatabaseEnabled = policy.sensors?.codex?.transportDatabase === true || process.env.AIDR_CODEX_TRANSPORT_DB === "1";
+    this.maxRolloutReadBytes = Math.max(64 * 1024, Number(policy.sensors?.codex?.maxReadBytes) || 128 * 1024);
+    this.transportPollIntervalMs = Math.max(5000, Number(policy.sensors?.codex?.transportPollIntervalMs) || 15000);
+    this.lastTransportPollAt = 0;
   }
 
   async start() {
@@ -28,7 +33,8 @@ class CodexSessionSensor {
     this.sessionsDir = path.join(this.codexDir, "sessions");
     this._loadLastId();
     this.addEvent("system", "info", "allow", "Codex session sensor started");
-    this.interval = setInterval(() => this.poll(), 3000);
+    const pollIntervalMs = Math.max(2000, Number(this.policy.sensors?.codex?.pollIntervalMs) || 5000);
+    this.interval = setInterval(() => this.poll(), pollIntervalMs);
   }
 
   _loadLastId() {
@@ -60,7 +66,10 @@ class CodexSessionSensor {
     if (this.polling) return;
     this.polling = true;
     try {
-      await this._pollTransportDatabase();
+      if (this.transportDatabaseEnabled && Date.now() - this.lastTransportPollAt >= this.transportPollIntervalMs) {
+        this.lastTransportPollAt = Date.now();
+        await this._pollTransportDatabase();
+      }
       await this._pollRolloutFiles();
       this._saveState();
     } catch (_) {
@@ -75,6 +84,10 @@ class CodexSessionSensor {
       const initSql = require("sql.js");
       const SQL = await initSql();
       if (!fs.existsSync(this.logsDbPath)) return;
+      const dbStat = fs.statSync(this.logsDbPath);
+      const dbFingerprint = `${dbStat.size}:${dbStat.mtimeMs}`;
+      if (dbFingerprint === this.logsDbFingerprint) return;
+      this.logsDbFingerprint = dbFingerprint;
       const buf = fs.readFileSync(this.logsDbPath);
       const db = new SQL.Database(buf);
 
@@ -162,16 +175,37 @@ class CodexSessionSensor {
         // On first install, replay only the tail of recently active sessions
         // so a live prompt is visible without importing the full history.
         const recent = Date.now() - stat.mtimeMs < 15 * 60 * 1000;
-        state = { offset: recent ? Math.max(0, stat.size - 2 * 1024 * 1024) : stat.size };
+        state = { offset: recent ? Math.max(0, stat.size - this.maxRolloutReadBytes) : stat.size };
       }
 
-      if (this._isInternalRollout(file)) {
-        this.rolloutFiles[file] = { offset: stat.size, internal: true };
+      if (state.size === stat.size && state.mtimeMs === stat.mtimeMs) continue;
+      state.size = stat.size;
+      state.mtimeMs = stat.mtimeMs;
+
+      const startOffset = Number(state.offset) || 0;
+      const bytesToRead = Math.min(Math.max(0, stat.size - startOffset), this.maxRolloutReadBytes);
+      if (bytesToRead === 0) {
+        state.offset = stat.size;
+        this.rolloutFiles[file] = state;
         continue;
       }
 
-      const buffer = fs.readFileSync(file);
-      const chunk = buffer.subarray(Number(state.offset) || 0).toString("utf8");
+      if (state.internal === undefined) state.internal = this._isInternalRollout(file);
+      if (state.internal) {
+        this.rolloutFiles[file] = { offset: stat.size, internal: true, size: stat.size, mtimeMs: stat.mtimeMs };
+        continue;
+      }
+
+      const buffer = Buffer.allocUnsafe(bytesToRead);
+      let bytesRead = 0;
+      let fd;
+      try {
+        fd = fs.openSync(file, "r");
+        bytesRead = fs.readSync(fd, buffer, 0, bytesToRead, startOffset);
+      } finally {
+        if (fd !== undefined) fs.closeSync(fd);
+      }
+      const chunk = buffer.subarray(0, bytesRead).toString("utf8");
       let cursor = 0;
       let newline;
       while ((newline = chunk.indexOf("\n", cursor)) >= 0) {
@@ -201,7 +235,12 @@ class CodexSessionSensor {
 
   _isInternalRollout(file) {
     try {
-      const firstLine = fs.readFileSync(file, "utf8").split(/\r?\n/, 1)[0];
+      const fd = fs.openSync(file, "r");
+      const head = Buffer.allocUnsafe(64 * 1024);
+      let bytesRead = 0;
+      try { bytesRead = fs.readSync(fd, head, 0, head.length, 0); }
+      finally { fs.closeSync(fd); }
+      const firstLine = head.subarray(0, bytesRead).toString("utf8").split(/\r?\n/, 1)[0];
       const record = JSON.parse(firstLine);
       const payload = record.payload || {};
       return payload.thread_source === "subagent" || Boolean(payload.source && payload.source.subagent);
@@ -393,7 +432,7 @@ class CodexSessionSensor {
   }
 
   async stop() { this.active = false; if (this.interval) clearInterval(this.interval); this._saveState(); }
-  getStats() { return this.stats; }
+  getStats() { return { ...this.stats, transportDatabaseEnabled: this.transportDatabaseEnabled, rolloutReadBytes: this.maxRolloutReadBytes, pollIntervalMs: Math.max(2000, Number(this.policy.sensors?.codex?.pollIntervalMs) || 5000) }; }
 }
 
 module.exports = { CodexSessionSensor };
