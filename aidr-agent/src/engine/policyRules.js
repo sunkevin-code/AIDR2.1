@@ -64,10 +64,45 @@ function baselineMetadata(policy = {}) {
   };
 }
 
-function compilePolicyRules(policy = {}, rules = policy.policyRules) {
-  const normalized = normalizePolicyRules(rules);
+function compilePolicyRules(policy = {}, rules = policy.policyRules, catalogIds = []) {
+  let normalized = normalizePolicyRules(rules);
   const organization = policy.organizationBoundary || {};
   const previouslyCompiled = new Set((organization.compiledAtoms || []).map(atomId));
+  const imported = {
+    allow: uniqueAtoms(organization.allowedAtoms).filter(id => !previouslyCompiled.has(id)),
+    conditional: uniqueAtoms(organization.conditionalAtoms).filter(id => !previouslyCompiled.has(id)),
+    deny: uniqueAtoms(organization.deniedAtoms).filter(id => !previouslyCompiled.has(id))
+  };
+  if (!normalized.some(rule => rule.id === "baseline-boundary-import") && (imported.allow.length || imported.conditional.length || imported.deny.length)) {
+    normalized.push(normalizeRule({
+      id: "baseline-boundary-import",
+      name: "Baseline imported authorization",
+      description: "Migrated organization authorization from the legacy boundary into the rule hierarchy.",
+      enabled: true,
+      priority: 900,
+      authorization: imported,
+      agentScope: ["*"],
+      source: "baseline-migration"
+    }, normalized.length));
+  }
+  const covered = new Set(normalized.flatMap(rule => rule.atomIds));
+  const defaultDenied = uniqueAtoms(catalogIds).filter(id => !covered.has(id));
+  if (defaultDenied.length) {
+    const existing = normalized.find(rule => rule.id === "baseline-default-deny");
+    const merged = uniqueAtoms([...(existing?.authorization?.deny || []), ...defaultDenied]);
+    normalized = normalized.filter(rule => rule.id !== "baseline-default-deny");
+    normalized.push(normalizeRule({
+      id: "baseline-default-deny",
+      name: "Baseline default deny",
+      description: "Zero-trust fallback for behavior atoms not granted by another rule.",
+      enabled: true,
+      priority: 1000,
+      authorization: { allow: [], conditional: [], deny: merged },
+      agentScope: ["*"],
+      source: "baseline"
+    }, normalized.length));
+  }
+  normalized.sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
   const allowed = new Set((organization.allowedAtoms || []).map(atomId).filter(id => !previouslyCompiled.has(id)));
   const conditional = new Set((organization.conditionalAtoms || []).map(atomId).filter(id => !previouslyCompiled.has(id)));
   const denied = new Set((organization.deniedAtoms || []).map(atomId).filter(id => !previouslyCompiled.has(id)));
@@ -137,7 +172,7 @@ function compilePolicyRules(policy = {}, rules = policy.policyRules) {
   };
 }
 
-function upsertAtomAuthorizationRule(policy = {}, id, enabled) {
+function upsertAtomAuthorizationRule(policy = {}, id, enabled, catalogIds = []) {
   const canonical = atomId(id);
   const rules = normalizePolicyRules(policy.policyRules);
   const ruleId = `atom-authorization:${canonical}`;
@@ -158,7 +193,7 @@ function upsertAtomAuthorizationRule(policy = {}, id, enabled) {
   const index = rules.findIndex(rule => rule.id === ruleId);
   if (index >= 0) rules[index] = nextRule;
   else rules.push(nextRule);
-  return compilePolicyRules(policy, rules);
+  return compilePolicyRules(policy, rules, catalogIds);
 }
 
 module.exports = {

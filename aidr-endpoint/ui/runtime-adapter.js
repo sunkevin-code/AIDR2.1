@@ -351,7 +351,42 @@
       verdictElement.className = "badge " + verdictClass(verdict);
     }
     renderPromptHistory(session);
+    renderSessionTaskPolicy({ effectivePolicy: session.effectivePolicy || {}, taskAuthorization: session.taskAuthorization || null, taskBoundary: session.taskBoundary || null });
     renderSessionOrbit(session);
+  }
+
+  function renderSessionTaskPolicy(snapshot) {
+    var preview = document.getElementById("policyPreview");
+    var button = document.getElementById("showPolicy");
+    var panel = button && button.closest(".panel");
+    if (!panel || !preview) return;
+    var effective = snapshot && snapshot.effectivePolicy || {};
+    var task = snapshot && snapshot.taskAuthorization || {};
+    var capabilities = effective.capabilities || {};
+    var enabledCapabilities = Object.keys(capabilities).filter(function (key) { return capabilities[key] === true; });
+    var deniedCapabilities = Object.keys(capabilities).filter(function (key) { return capabilities[key] === false; });
+    var allowedAtoms = task.allowedAtoms || effective.allowedAtoms || [];
+    var conditionalAtoms = task.conditionalAtoms || effective.conditionalAtoms || [];
+    var deniedAtoms = task.deniedAtoms || effective.deniedAtoms || [];
+    var values = panel.querySelectorAll(".cap-value");
+    if (values[0]) values[0].textContent = enabledCapabilities.join(" · ") || allowedAtoms.join(" · ") || "无";
+    if (values[1]) values[1].textContent = deniedCapabilities.join(" · ") || deniedAtoms.join(" · ") || "无";
+    if (values[2]) values[2].textContent = (effective.allowedDomains || []).join(" · ") || (capabilities.network ? "仅任务声明域名" : "禁止外部网络");
+    if (values[3]) values[3].textContent = conditionalAtoms.length ? conditionalAtoms.length + " 个行为原子需审批" : "无";
+    var subtitle = panel.querySelector(".panel-head p");
+    if (subtitle) subtitle.textContent = "与当前会话任务边界使用同一份 session.effectivePolicy 快照。";
+    preview.textContent = JSON.stringify({
+      source: "session.effectivePolicy",
+      capabilities: capabilities,
+      authorization: {
+        allow: allowedAtoms,
+        requireApproval: conditionalAtoms,
+        deny: deniedAtoms
+      },
+      allowedPaths: effective.allowedPaths || effective.allowedReadPaths || [],
+      allowedDomains: effective.allowedDomains || [],
+      taskBoundary: snapshot && snapshot.taskBoundary || null
+    }, null, 2);
   }
 
   var abgDomains = [
@@ -424,8 +459,8 @@
         polygon.push({
           atomId: null,
           domain: group.domain,
-          point: abgPoint(group.domain, Math.max(0, group.configuredLevel), cx, cy, maxRadius),
-          effectiveLevel: group.configuredLevel,
+          point: abgPoint(group.domain, Math.max(0, group.effectiveLevel), cx, cy, maxRadius),
+          effectiveLevel: Math.max(0, group.effectiveLevel),
           synthetic: true
         });
         return;
@@ -1086,6 +1121,7 @@
 
   function abgRenderSessionOrbit(panel) {
     if (!panel || !abgSessionData) return;
+    renderSessionTaskPolicy(abgSessionData);
     var evidencePanel = panel.querySelector("[data-abg-intent-evidence]");
     if (evidencePanel) {
       var evidence = abgSessionData.intentEvidence || abgSessionData.intent?.intentEvidence || null;
@@ -1520,14 +1556,14 @@
       '<div class="panel-body"><div class="policy-baseline-summary">' +
         '<div><small>Baseline</small><strong>' + escapeHtml(baseline.name || "AIDR Organization Baseline") + '</strong><span>' + escapeHtml(baseline.id || "default-baseline") + '</span></div>' +
         '<div><small>版本 / Revision</small><strong>' + escapeHtml(baseline.version || policy.version || "-") + '</strong><span>R' + escapeHtml(baseline.revision || 0) + '</span></div>' +
-        '<div><small>规则</small><strong>' + rules.length + '</strong><span>' + rules.filter(function (r) { return r.enabled !== false; }).length + ' 条生效</span></div>' +
+        '<button type="button" class="policy-summary-button" data-policy-summary="rules"><small>规则</small><strong>' + rules.length + '</strong><span>' + rules.filter(function (r) { return r.enabled !== false; }).length + ' 条生效 · 点击查看</span></button>' +
         '<div><small>允许</small><strong class="text-allow">' + authorization.allowedAtoms.length + '</strong><span>直接放行</span></div>' +
         '<div><small>需审批</small><strong class="text-hold">' + authorization.conditionalAtoms.length + '</strong><span>审批后放行</span></div>' +
         '<div><small>不允许</small><strong class="text-block">' + authorization.deniedAtoms.length + '</strong><span>强制阻断</span></div>' +
       '</div><table class="table policy-domain-table"><thead><tr><th>行为域</th><th>允许</th><th>需审批</th><th>不允许</th><th>合计</th></tr></thead><tbody>' + (domainRows || '<tr><td colspan="5">尚无已编译规则</td></tr>') + '</tbody></table></div>' +
-      '<div class="panel-head policy-rule-list-head"><div><h2>规则列表</h2><p>优先级数值越小越先决；同一行为原子采用首个生效规则的决策。</p></div><span class="badge neutral">' + escapeHtml(effective.source || "policy.policyRules.compiler") + '</span></div>' +
-      '<div id="policyRuleRows">' + (rows || '<div class="empty">暂无规则，请新建第一条权限规则。</div>') + '</div>' +
-      '<div class="panel-body policy-rule-editor" id="policyRuleEditor"><input type="hidden" id="policyRuleId"><div class="form-grid">' +
+      '<div id="policyRuleRowsWrap" hidden><div class="panel-head policy-rule-list-head"><div><h2>规则列表</h2><p>优先级数值越小越先决；同一行为原子采用首个生效规则的决策。</p></div><button class="btn" type="button" data-policy-close="rules">收起</button></div>' +
+      '<div id="policyRuleRows">' + (rows || '<div class="empty">暂无规则，请新建第一条权限规则。</div>') + '</div></div>' +
+      '<div class="panel-body policy-rule-editor" id="policyRuleEditor" hidden><input type="hidden" id="policyRuleId"><div class="policy-editor-head"><strong>规则配置</strong><button class="btn" type="button" data-policy-close="editor">关闭</button></div><div class="form-grid">' +
         '<div class="field"><label>规则名称</label><input class="input" id="policyRuleName"></div><div class="field"><label>优先级</label><input class="input" type="number" id="policyRulePriority" value="100"></div>' +
         '<div class="field"><label>Agent 作用域</label><input class="input" id="policyRuleScope" value="*" placeholder="* 或 codex,opencode"></div><div class="field"><label>说明</label><input class="input" id="policyRuleDescription"></div>' +
         '<div class="field full"><label>允许的行为原子</label><textarea class="textarea" id="policyRuleAllow" placeholder="DATA.SOURCE_CODE_READ, DATA.DOCUMENT_READ"></textarea></div>' +
@@ -1555,9 +1591,16 @@
         .then(function () { status.textContent = message; return refresh(); })
         .catch(function (error) { status.textContent = "保存失败：" + (error.message || "API unavailable"); });
     }
-    panel.querySelector("#policyRuleNew").addEventListener("click", function () { fill(null); panel.querySelector("#policyRuleName").focus(); });
-    panel.querySelector("#policyRuleCancel").addEventListener("click", function () { fill(null); });
-    panel.querySelectorAll("[data-policy-edit]").forEach(function (button) { button.addEventListener("click", function () { fill(rules.find(function (rule) { return rule.id === button.dataset.policyEdit; })); }); });
+    var rowsWrap = panel.querySelector("#policyRuleRowsWrap");
+    var editor = panel.querySelector("#policyRuleEditor");
+    function showRules() { rowsWrap.hidden = false; rowsWrap.scrollIntoView({ block: "nearest" }); }
+    function showEditor(rule) { fill(rule || null); editor.hidden = false; editor.scrollIntoView({ block: "nearest" }); if (!rule) panel.querySelector("#policyRuleName").focus(); }
+    panel.querySelector("#policyRuleNew").addEventListener("click", function () { showEditor(null); });
+    panel.querySelector("#policyRuleCancel").addEventListener("click", function () { fill(null); editor.hidden = true; });
+    panel.querySelector('[data-policy-summary="rules"]').addEventListener("click", showRules);
+    panel.querySelector('[data-policy-close="rules"]').addEventListener("click", function () { rowsWrap.hidden = true; });
+    panel.querySelector('[data-policy-close="editor"]').addEventListener("click", function () { editor.hidden = true; });
+    panel.querySelectorAll("[data-policy-edit]").forEach(function (button) { button.addEventListener("click", function () { showEditor(rules.find(function (rule) { return rule.id === button.dataset.policyEdit; })); }); });
     panel.querySelectorAll("[data-policy-toggle]").forEach(function (button) { button.addEventListener("click", function () { var id = button.dataset.policyToggle; persist(rules.map(function (rule) { return rule.id === id ? Object.assign({}, rule, { enabled: rule.enabled === false }) : rule; }), "规则状态已更新"); }); });
     panel.querySelectorAll("[data-policy-delete]").forEach(function (button) { button.addEventListener("click", function () { var id = button.dataset.policyDelete; persist(rules.filter(function (rule) { return rule.id !== id; }), "规则已删除"); }); });
     panel.querySelector("#policyRuleSave").addEventListener("click", function () {
@@ -1586,6 +1629,57 @@
       badges[0].className = "badge hold";
     }
     renderPolicyRules();
+    var versionHeading = Array.from(page.querySelectorAll(".panel-head h2")).find(function (heading) { return heading.textContent.trim() === "版本与回滚"; });
+    if (versionHeading) versionHeading.closest(".panel").remove();
+    var metrics = page.querySelectorAll(":scope > .grid.grid-4 .metric");
+    var effective = policy.effectivePolicy || {};
+    var authorization = effective.authorization || {};
+    var rules = Array.isArray(policy.policyRules) ? policy.policyRules : [];
+    var byVerdict = state.eventStats && state.eventStats.byVerdict || [];
+    var totalHits = Number(state.eventStats && state.eventStats.total || 0);
+    var hitRows = byVerdict.map(function (item) { return (item.verdict || "unknown") + " " + (item.c || item.count || 0); }).join(" · ");
+    var metricData = [
+      { label: "生效规则", value: rules.filter(function (rule) { return rule.enabled !== false; }).length, foot: "点击查看规则", detail: rules.map(function (rule) { return rule.name + " · P" + rule.priority + " · " + (rule.enabled === false ? "已停用" : "生效"); }).join("\n") },
+      { label: "策略命中", value: totalHits, foot: "最近采集窗口", detail: hitRows || "当前窗口暂无策略决策事件" },
+      { label: "需审批原子", value: (authorization.conditionalAtoms || []).length, foot: "点击查看原子", detail: (authorization.conditionalAtoms || []).join("\n") || "当前没有需审批行为原子" },
+      { label: "不允许原子", value: (authorization.deniedAtoms || []).length, foot: "点击查看原子", detail: (authorization.deniedAtoms || []).join("\n") || "当前没有不允许行为原子" }
+    ];
+    metrics.forEach(function (metric, index) {
+      var data = metricData[index];
+      if (!data) return;
+      metric.setAttribute("role", "button");
+      metric.setAttribute("tabindex", "0");
+      metric.dataset.policyMetric = String(index);
+      var label = metric.querySelector(".metric-top");
+      var value = metric.querySelector(".metric-value");
+      var foot = metric.querySelector(".metric-foot");
+      if (label) label.textContent = data.label;
+      if (value) value.textContent = String(data.value);
+      if (foot) foot.textContent = data.foot;
+    });
+    var detail = page.querySelector("#policyMetricDetail");
+    if (!detail && metrics.length) {
+      detail = document.createElement("div");
+      detail.id = "policyMetricDetail";
+      detail.className = "panel policy-metric-detail";
+      detail.hidden = true;
+      metrics[0].parentElement.insertAdjacentElement("afterend", detail);
+    }
+    function openMetric(index) {
+      var data = metricData[index];
+      if (!data || !detail) return;
+      detail.hidden = false;
+      detail.innerHTML = '<div class="panel-head"><div><h2>' + escapeHtml(data.label) + '详情</h2><p>数据来自当前有效策略和实时决策统计。</p></div><button class="btn" data-policy-metric-close>关闭</button></div><div class="panel-body"><pre class="policy-detail-pre">' + escapeHtml(data.detail) + '</pre></div>';
+      detail.querySelector("[data-policy-metric-close]").addEventListener("click", function () { detail.hidden = true; });
+      if (index === 0) {
+        var rulesButton = page.querySelector('[data-policy-summary="rules"]');
+        if (rulesButton) rulesButton.click();
+      }
+    }
+    metrics.forEach(function (metric, index) {
+      metric.onclick = function () { openMetric(index); };
+      metric.onkeydown = function (event) { if (event.key === "Enter" || event.key === " ") openMetric(index); };
+    });
     renderPolicyAbg();
   }
 

@@ -473,7 +473,7 @@ function startApiServer({
         custom[id] = { ...(custom[id] || {}), ...(body || {}), enabled, system: false };
       }
       const next = { ...current, custom, disabled: Array.from(disabled) };
-      const authorization = upsertAtomAuthorizationRule({ ...policy, behaviorAtoms: next }, id, enabled);
+      const authorization = upsertAtomAuthorizationRule({ ...policy, behaviorAtoms: next }, id, enabled, currentCatalog.map(atom => atom.id));
       const patch = { behaviorAtoms: next, ...authorization };
       const updated = onPolicyUpdate ? onPolicyUpdate(patch) : Object.assign(policy, patch);
       const updatedBoundary = getOrganizationBoundary(updated);
@@ -663,16 +663,27 @@ function startApiServer({
       const predictedPath = buildPredictedPath(session);
       const requestPath = actualPath.filter(event => event.boundaryScope !== "within");
       const effectivePolicy = session.effectivePolicy || {};
+      const organizationBoundary = getOrganizationBoundary(policy);
+      const organizationAllowed = new Set(organizationBoundary.allowedAtoms || []);
+      const organizationConditional = new Set(organizationBoundary.conditionalAtoms || []);
+      const organizationDenied = new Set(organizationBoundary.deniedAtoms || []);
+      const requestedAtoms = Array.from(new Set(predictedPath.map(item => String(item.atomId || "").toUpperCase()).filter(Boolean)));
+      const taskAuthorization = {
+        allowedAtoms: requestedAtoms.filter(id => organizationAllowed.has(id)),
+        conditionalAtoms: requestedAtoms.filter(id => organizationConditional.has(id)),
+        deniedAtoms: requestedAtoms.filter(id => organizationDenied.has(id) || (!organizationAllowed.has(id) && !organizationConditional.has(id)))
+      };
       const taskBoundary = constrainTaskBoundary({
         ...effectivePolicy,
         maxLevel: Number.isFinite(Number(effectivePolicy.maxLevel)) ? Number(effectivePolicy.maxLevel) : 3,
         levels: effectivePolicy.levels || effectivePolicy.domainLevels || deriveTaskLevels(effectivePolicy, 3),
-        source: "session.taskBoundary"
-      }, getOrganizationBoundary(policy));
+        ...taskAuthorization,
+        source: "session.effectivePolicy"
+      }, organizationBoundary);
       const orbit = buildOrbitGraph({
         sessionId,
         agentId: session.agent,
-        organizationBoundary: getOrganizationBoundary(policy),
+        organizationBoundary,
         taskBoundary,
         predictedPath,
         actualPath,
@@ -692,8 +703,10 @@ function startApiServer({
       return ok({
         sessionId,
         agentId: session.agent,
-        organizationBoundary: getOrganizationBoundary(policy),
+        organizationBoundary,
         taskBoundary,
+        taskAuthorization,
+        effectivePolicy,
         predictedPath,
         actualPath,
         actualPathTotal: fullActualPath.length,
@@ -842,7 +855,7 @@ function startApiServer({
     if (pathname === "/api/policy" && req.method === "PUT") {
       const body = await readBody(req);
       const patch = Object.prototype.hasOwnProperty.call(body, "policyRules")
-        ? { ...body, ...compilePolicyRules({ ...policy, ...body, organizationBoundary: { ...(policy.organizationBoundary || {}), ...(body.organizationBoundary || {}) } }, body.policyRules) }
+        ? { ...body, ...compilePolicyRules({ ...policy, ...body, organizationBoundary: { ...(policy.organizationBoundary || {}), ...(body.organizationBoundary || {}) } }, body.policyRules, buildCatalog({ ...policy, ...body }).map(atom => atom.id)) }
         : body;
       const updated = onPolicyUpdate ? onPolicyUpdate(patch) : Object.assign(policy, patch);
       return ok({ ok: true, policy: redactPolicy(updated), policyVerification: getPolicyVerification?.() || { status: "unknown" } });

@@ -27,7 +27,7 @@ const { Enforcer } = require("./enforcement/enforcer");
 const { TransportClient } = require("./transport/client");
 const { createDefaultAdapterRegistry } = require("./adapters/agentAdapter");
 const { EVENT_SCHEMA_VERSION, normalizeEvent } = require("./observability/eventSchema");
-const { enrichEvent } = require("./engine/behaviorAtoms");
+const { enrichEvent, buildCatalog } = require("./engine/behaviorAtoms");
 const { compilePolicyRules } = require("./engine/policyRules");
 const { AuditLedger } = require("./observability/auditLedger");
 const { SemanticFeedbackStore } = require("./observability/semanticFeedback");
@@ -119,7 +119,7 @@ class AIDRAgent {
         this.policyVerification = { ...this.policyVerification, agentPolicyMigrationError: error.message };
       }
     }
-    const compiledPolicy = compilePolicyRules(this.policy);
+    const compiledPolicy = compilePolicyRules(this.policy, this.policy.policyRules, buildCatalog(this.policy).map(atom => atom.id));
     const currentPolicyShape = JSON.stringify({
       policyBaseline: this.policy.policyBaseline,
       policyRules: this.policy.policyRules,
@@ -555,7 +555,7 @@ class AIDRAgent {
         candidate.behaviorAtoms.disabled = patch.behaviorAtoms.disabled;
       }
     }
-    const signed = this.policyStore.save({ ...candidate, ...compilePolicyRules(candidate) });
+    const signed = this.policyStore.save({ ...candidate, ...compilePolicyRules(candidate, candidate.policyRules, buildCatalog(candidate).map(atom => atom.id)) });
     Object.keys(this.policy).forEach(key => delete this.policy[key]);
     Object.assign(this.policy, signed);
     this.policyVerification = this.policyStore.verifyActive();

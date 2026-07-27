@@ -73,6 +73,7 @@
     var organization = normalizedBoundary.organization;
     var target = layer === "task" ? normalizedBoundary.task : organization;
     var explicitlyAllowed = new Set(organization.allowedAtoms || []);
+    var taskAllowed = new Set(target.allowedAtoms || []);
     var denied = new Set(organization.deniedAtoms || []);
     return (Array.isArray(domains) ? domains : []).map(function (domain) {
       var key = String(domain).toUpperCase();
@@ -82,9 +83,9 @@
         : organizationLimit;
       var allowed = normalizedCatalog.filter(function (atom) {
         if (atom.domain !== key || atom.enabled === false || denied.has(atom.id)) return false;
-        var allowedByOrganization = explicitlyAllowed.has(atom.id) || atom.baseLevel <= organizationLimit;
+        var allowedByOrganization = explicitlyAllowed.has(atom.id);
         if (!allowedByOrganization) return false;
-        return layer === "task" ? atom.baseLevel <= targetLimit : true;
+        return layer === "task" ? taskAllowed.has(atom.id) && atom.baseLevel <= targetLimit : true;
       });
       var highestLevel = allowed.reduce(function (highest, atom) { return Math.max(highest, atom.baseLevel); }, -1);
       return {
