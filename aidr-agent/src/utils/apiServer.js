@@ -5,6 +5,7 @@ const { validateDecisionContract } = require("../engine/decisionContract");
 const { buildIntentEvidence } = require("../engine/intentEvidence");
 const { buildCatalog, enrichEvent, aggregateEvents, getOrganizationBoundary, classifyOrganizationAtom, deriveTaskLevels, constrainTaskBoundary } = require("../engine/behaviorAtoms");
 const { buildOrbitGraph } = require("../engine/behaviorAtomSchema");
+const { compilePolicyRules, upsertAtomAuthorizationRule } = require("../engine/policyRules");
 
 function startApiServer({
   policy, events, db, addEvent, sensors, transport, apiPort, handleEvent,
@@ -471,13 +472,8 @@ function startApiServer({
         custom[id] = { ...(custom[id] || {}), ...(body || {}), enabled, system: false };
       }
       const next = { ...current, custom, disabled: Array.from(disabled) };
-      const nextOrganization = {
-        ...organization,
-        allowedAtoms: Array.from(allowedAtoms),
-        deniedAtoms: Array.from(deniedAtoms),
-        source: "policy.organizationBoundary.atomAuthorization"
-      };
-      const patch = { behaviorAtoms: next, organizationBoundary: nextOrganization };
+      const authorization = upsertAtomAuthorizationRule({ ...policy, behaviorAtoms: next }, id, enabled);
+      const patch = { behaviorAtoms: next, ...authorization };
       const updated = onPolicyUpdate ? onPolicyUpdate(patch) : Object.assign(policy, patch);
       const updatedBoundary = getOrganizationBoundary(updated);
       const updatedCatalog = buildCatalog(updated).map(atom => {
@@ -844,7 +840,10 @@ function startApiServer({
     }
     if (pathname === "/api/policy" && req.method === "PUT") {
       const body = await readBody(req);
-      const updated = onPolicyUpdate ? onPolicyUpdate(body) : Object.assign(policy, body);
+      const patch = Object.prototype.hasOwnProperty.call(body, "policyRules")
+        ? { ...body, ...compilePolicyRules({ ...policy, ...body, organizationBoundary: { ...(policy.organizationBoundary || {}), ...(body.organizationBoundary || {}) } }, body.policyRules) }
+        : body;
+      const updated = onPolicyUpdate ? onPolicyUpdate(patch) : Object.assign(policy, patch);
       return ok({ ok: true, policy: redactPolicy(updated), policyVerification: getPolicyVerification?.() || { status: "unknown" } });
     }
     if (pathname === "/api/policy/history" && req.method === "GET") {

@@ -91,6 +91,34 @@ async function run() {
   const detail = await response.json();
   assert.strictEqual(detail.prompt, "Read README.md and summarize it.");
 
+  response = await fetch(`${baseUrl}/console/api/sessions/session-integration/orbit`);
+  const orbit = await response.json();
+  assert.strictEqual(orbit.sessionId, "session-integration");
+  assert.ok(orbit.organizationBoundary);
+
+  response = await fetch(`${baseUrl}/console/api/policy`);
+  const initialPolicy = await response.json();
+  assert.ok(Array.isArray(initialPolicy.policyRules));
+
+  response = await fetch(`${baseUrl}/console/api/policy`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      policyRules: [
+        { id: "integration-allow", name: "Integration allow", enabled: true, priority: 1, action: "allow", agentScope: ["*"], atomIds: ["DATA.SOURCE_CODE_READ"] },
+        { id: "integration-block", name: "Integration block", enabled: true, priority: 2, action: "block", agentScope: ["*"], atomIds: ["AUTH.CREDENTIAL_READ"] }
+      ]
+    })
+  });
+  assert.strictEqual(response.status, 200);
+  const policyUpdate = await response.json();
+  assert.ok(policyUpdate.policy.organizationBoundary.allowedAtoms.includes("DATA.SOURCE_CODE_READ"));
+  assert.ok(policyUpdate.policy.organizationBoundary.deniedAtoms.includes("AUTH.CREDENTIAL_READ"));
+
+  response = await fetch(`${baseUrl}/console/api/behavior-atoms`);
+  const atoms = await response.json();
+  assert.ok(atoms.catalog.some(atom => atom.id === "DATA.SOURCE_CODE_READ" && atom.enabled));
+
   process.stdout.write("control-plane integration: PASS\n");
 }
 

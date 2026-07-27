@@ -238,6 +238,58 @@ initDB().then(() => {
     return actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
   }
 
+  function defaultCentralPolicy() {
+    return {
+      version: "central-policy-v1",
+      mode: "enforce",
+      policyRules: [
+        { id: "secret-read-deny", name: "Sensitive credential read protection", description: "Block access to credentials and secrets.", enabled: true, priority: 10, action: "block", agentScope: ["*"], atomIds: ["AUTH.CREDENTIAL_DISCOVER", "DATA.CREDENTIAL_READ"], source: "baseline" },
+        { id: "external-network-review", name: "External network approval", description: "Require approval for external connections and transfers.", enabled: true, priority: 20, action: "require_approval", agentScope: ["*"], atomIds: ["EXEC.HTTP_CONNECT", "EXEC.REMOTE_ACCESS_CONNECT", "DATA.DATA_TRANSFER"], source: "baseline" },
+        { id: "workspace-read", name: "Workspace read", description: "Allow source code and document reads.", enabled: true, priority: 30, action: "allow", agentScope: ["*"], atomIds: ["DATA.SOURCE_CODE_READ", "DATA.DOCUMENT_READ", "DATA.FILE_READ"], source: "baseline" }
+      ],
+      organizationBoundary: { maxLevel: 3, levels: {}, allowedAtoms: [], deniedAtoms: [], compiledAtoms: [] }
+    };
+  }
+
+  function compileCentralPolicy(input = {}) {
+    const policy = { ...defaultCentralPolicy(), ...input, organizationBoundary: { ...defaultCentralPolicy().organizationBoundary, ...(input.organizationBoundary || {}) } };
+    const previous = new Set(policy.organizationBoundary.compiledAtoms || []);
+    const allowed = new Set((policy.organizationBoundary.allowedAtoms || []).filter(id => !previous.has(id)));
+    const denied = new Set((policy.organizationBoundary.deniedAtoms || []).filter(id => !previous.has(id)));
+    const compiled = new Set();
+    policy.policyRules = (Array.isArray(policy.policyRules) ? policy.policyRules : []).map((rule, index) => ({
+      ...rule,
+      id: String(rule.id || `policy-${index + 1}`),
+      enabled: rule.enabled !== false,
+      priority: Number(rule.priority || (index + 1) * 100),
+      action: String(rule.action || "block").toLowerCase(),
+      agentScope: Array.isArray(rule.agentScope) ? rule.agentScope : ["*"],
+      atomIds: Array.from(new Set((rule.atomIds || []).map(id => String(id).toUpperCase())))
+    })).sort((a, b) => a.priority - b.priority);
+    for (const rule of policy.policyRules.slice().reverse()) {
+      if (!rule.enabled) continue;
+      for (const id of rule.atomIds) {
+        compiled.add(id);
+        if (rule.action === "allow") { allowed.add(id); denied.delete(id); }
+        else { denied.add(id); allowed.delete(id); }
+      }
+    }
+    policy.organizationBoundary = { ...policy.organizationBoundary, allowedAtoms: Array.from(allowed).sort(), deniedAtoms: Array.from(denied).sort(), compiledAtoms: Array.from(compiled).sort(), source: "policy.policyRules.compiler" };
+    return policy;
+  }
+
+  function activeCentralPolicy() {
+    const row = queryOne("SELECT * FROM policies WHERE enabled=1 ORDER BY updated_at DESC LIMIT 1");
+    if (!row) return compileCentralPolicy(defaultCentralPolicy());
+    try { return compileCentralPolicy(JSON.parse(row.config || "{}")); } catch (_) { return compileCentralPolicy(defaultCentralPolicy()); }
+  }
+
+  function saveCentralPolicy(policy) {
+    const compiled = compileCentralPolicy(policy);
+    execSQL("INSERT OR REPLACE INTO policies (id, name, description, config, scope, enabled, created_at, updated_at) VALUES ('central-active', 'Central active policy', 'Unified policy source', ?, 'global', 1, COALESCE((SELECT created_at FROM policies WHERE id='central-active'), datetime('now')), datetime('now'))", [JSON.stringify(compiled)]);
+    return compiled;
+  }
+
   function ensureAgent(agentId, metadata = {}) {
     const id = String(agentId || "").trim();
     if (!id) return null;
@@ -388,6 +440,32 @@ initDB().then(() => {
           }))
         };
       }
+      else if (/^\/console\/api\/sessions\/[^/]+\/orbit$/.test(pathname) && req.method === "GET") {
+        const sessionId = decodeURIComponent(pathname.split("/")[4]);
+        const session = queryOne("SELECT * FROM sessions WHERE id = ?", [sessionId]);
+        const sessionEvents = queryAll("SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC", [sessionId]);
+        const policy = activeCentralPolicy();
+        const allowed = policy.organizationBoundary.allowedAtoms || [];
+        const inferredAtom = event => {
+          const text = `${event.category || ""} ${event.summary || ""}`.toLowerCase();
+          if (/credential|secret|ssh|token/.test(text)) return "DATA.CREDENTIAL_READ";
+          if (/network|http|url|web/.test(text)) return "EXEC.HTTP_CONNECT";
+          if (/write|modify|create/.test(text)) return "DATA.DATA_WRITE";
+          if (/read|file|document/.test(text)) return "DATA.FILE_READ";
+          if (/shell|process|exec/.test(text)) return "EXEC.PROGRAM_EXECUTE";
+          return "INTENT.INTERPRET";
+        };
+        result = {
+          sessionId,
+          agentId: session?.agent_id || null,
+          organizationBoundary: policy.organizationBoundary,
+          taskBoundary: { maxLevel: Math.min(2, Number(policy.organizationBoundary.maxLevel || 3)), levels: policy.organizationBoundary.levels || {}, source: "central.session.taskBoundary" },
+          predictedPath: allowed.slice(0, 8).map((atomId, index) => ({ atomId, sequence: index + 1, boundaryScope: "within", verdict: "allow" })),
+          actualPath: sessionEvents.map((event, index) => ({ atomId: inferredAtom(event), sequence: index + 1, timestamp: event.timestamp, boundaryScope: event.verdict === "block" ? "organization" : "within", verdict: event.verdict })),
+          decisionTrace: { steps: [] },
+          generatedAt: new Date().toISOString()
+        };
+      }
       else if (pathname === "/console/api/events" && req.method === "GET") {
         const endpointId = url.searchParams.get("endpoint_id");
         const rows = endpointId
@@ -406,11 +484,36 @@ initDB().then(() => {
         };
       }
       else if (pathname === "/console/api/policy" && req.method === "GET") {
-        const row = queryOne("SELECT * FROM policies WHERE enabled=1 ORDER BY updated_at DESC LIMIT 1");
-        result = row ? JSON.parse(row.config || "{}") : { version: "central-default", mode: "monitor", organizationBoundary: { maxLevel: 3 } };
+        result = activeCentralPolicy();
+      }
+      else if (pathname === "/console/api/policy" && req.method === "PUT") {
+        result = { ok: true, policy: saveCentralPolicy({ ...activeCentralPolicy(), ...(body || {}) }) };
       }
       else if (pathname === "/console/api/behavior-atoms" && req.method === "GET") {
-        result = { catalog: [], agents: [], stats: [], occurrences: [], mappingQuality: { status: "awaiting_endpoint_atom_stream" } };
+        const policy = activeCentralPolicy();
+        const allowed = new Set(policy.organizationBoundary.allowedAtoms || []);
+        const denied = new Set(policy.organizationBoundary.deniedAtoms || []);
+        const atomIds = Array.from(new Set((policy.policyRules || []).flatMap(rule => rule.atomIds || []))).sort();
+        result = {
+          catalog: atomIds.map(id => {
+            const domain = id.split(".")[0];
+            const enabled = allowed.has(id) && !denied.has(id);
+            return { id, domain, description: id, baseLevel: /CREDENTIAL|TRANSFER|REMOTE|PRIVILEGE/.test(id) ? 4 : /CONNECT|WRITE|EXECUTE/.test(id) ? 3 : 1, enabled, policyAllowed: enabled, organizationBoundary: { scope: enabled ? "within" : "organization", reason: denied.has(id) ? "atom_denied_by_policy" : "within", source: policy.organizationBoundary.source } };
+          }),
+          agents: [], stats: [], occurrences: [], boundary: policy.organizationBoundary,
+          mappingQuality: { status: "central_policy_catalog" }
+        };
+      }
+      else if (/^\/console\/api\/behavior-atoms\/[^/]+$/.test(pathname) && req.method === "PUT") {
+        const id = decodeURIComponent(pathname.split("/").pop()).toUpperCase();
+        const enabled = body?.enabled !== false;
+        const policy = activeCentralPolicy();
+        const ruleId = `atom-authorization:${id}`;
+        const rule = { id: ruleId, name: `${id} authorization`, description: enabled ? "Administrator allows this behavior atom." : "Administrator denies this behavior atom.", enabled: true, priority: 10, action: enabled ? "allow" : "block", agentScope: ["*"], atomIds: [id], source: "behavior-atom-grid" };
+        const rules = (policy.policyRules || []).filter(item => item.id !== ruleId);
+        rules.push(rule);
+        const updated = saveCentralPolicy({ ...policy, policyRules: rules });
+        result = { ok: true, atom: { id, enabled, policyAllowed: enabled }, policy: updated };
       }
       else if (pathname === "/console/api/semantic/local-config" && req.method === "GET") {
         result = { enabled: false, mode: "endpoint_managed", status: "central_view" };

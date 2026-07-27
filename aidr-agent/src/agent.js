@@ -28,6 +28,7 @@ const { TransportClient } = require("./transport/client");
 const { createDefaultAdapterRegistry } = require("./adapters/agentAdapter");
 const { EVENT_SCHEMA_VERSION, normalizeEvent } = require("./observability/eventSchema");
 const { enrichEvent } = require("./engine/behaviorAtoms");
+const { compilePolicyRules } = require("./engine/policyRules");
 const { AuditLedger } = require("./observability/auditLedger");
 const { SemanticFeedbackStore } = require("./observability/semanticFeedback");
 const { AsyncTelemetryQueue } = require("./observability/asyncTelemetryQueue");
@@ -73,6 +74,15 @@ function ensureAgentPolicySchema(policy) {
     next.behaviorAtoms = { version: "aidr-behavior-atom-v1", custom: {}, disabled: [] };
     changed = true;
   }
+  if (!Array.isArray(next.policyRules)) {
+    next.policyRules = [
+      { id: "secret-read-deny", name: "Sensitive credential read protection", description: "Block access to credentials, private keys and environment secrets.", enabled: true, priority: 10, action: "block", agentScope: ["*"], atomIds: ["AUTH.CREDENTIAL_DISCOVER", "DATA.CREDENTIAL_READ"], source: "baseline" },
+      { id: "external-network-review", name: "External network approval", description: "Require approval before an Agent connects to an external destination.", enabled: true, priority: 20, action: "require_approval", agentScope: ["*"], atomIds: ["EXEC.HTTP_CONNECT", "EXEC.REMOTE_ACCESS_CONNECT", "DATA.DATA_TRANSFER"], source: "baseline" },
+      { id: "workspace-read", name: "Workspace read", description: "Allow source code and document reads inside the active workspace.", enabled: true, priority: 30, action: "allow", agentScope: ["*"], atomIds: ["DATA.SOURCE_CODE_READ", "DATA.DOCUMENT_READ", "DATA.FILE_READ"], source: "baseline" },
+      { id: "system-change-deny", name: "System change protection", description: "Block service, registry and privileged system changes.", enabled: true, priority: 40, action: "block", agentScope: ["*"], atomIds: ["EXEC.SERVICE_CONTROL", "EXEC.REGISTRY_MODIFY", "EXEC.SYSTEM_PRIVILEGE_CHANGE"], source: "baseline" }
+    ];
+    changed = true;
+  }
   return { policy: next, changed };
 }
 
@@ -103,7 +113,7 @@ class AIDRAgent {
     const agentPolicySchema = ensureAgentPolicySchema(this.policy);
     if (agentPolicySchema.changed) {
       try {
-        this.policy = this.policyStore.save(agentPolicySchema.policy, { signer: "aidr-agent-policy-schema-v1" });
+        this.policy = this.policyStore.save({ ...agentPolicySchema.policy, ...compilePolicyRules(agentPolicySchema.policy) }, { signer: "aidr-agent-policy-schema-v1" });
         this.policyVerification = this.policyStore.verifyActive();
       } catch (error) {
         this.policyVerification = { ...this.policyVerification, agentPolicyMigrationError: error.message };
