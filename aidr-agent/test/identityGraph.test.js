@@ -20,6 +20,13 @@ function test_addNode_deduplicates_by_id() {
   console.log("PASS addNode_deduplicates_by_id");
 }
 
+function test_addNode_preserves_zero_trust() {
+  const graph = new IdentityGraph();
+  const node = graph.addNode("agent-zero", "agent", "untrusted", 0);
+  if (node.trust !== 0) throw new Error("Expected trust=0, got " + node.trust);
+  console.log("PASS addNode_preserves_zero_trust");
+}
+
 function test_addNode_rejects_unknown_type() {
   const graph = new IdentityGraph();
   try {
@@ -48,6 +55,15 @@ function test_addEdge_skips_missing_nodes() {
   const edge = graph.addEdge("a", "missing", "invokes");
   if (edge !== null) throw new Error("Should return null for missing target");
   console.log("PASS addEdge_skips_missing_nodes");
+}
+
+function test_addEdge_preserves_zero_weight() {
+  const graph = new IdentityGraph();
+  graph.addNode("user-zero", "user", "zero");
+  graph.addNode("agent-zero", "agent", "zero");
+  const edge = graph.addEdge("user-zero", "agent-zero", "owns", 0);
+  if (edge.weight !== 0) throw new Error("Expected weight=0, got " + edge.weight);
+  console.log("PASS addEdge_preserves_zero_weight");
 }
 
 // ─── Identity Resolution ───
@@ -158,9 +174,11 @@ function test_getStats_aggregates_correctly() {
 const tests = [
   test_addNode_creates_valid_node,
   test_addNode_deduplicates_by_id,
+  test_addNode_preserves_zero_trust,
   test_addNode_rejects_unknown_type,
   test_addEdge_creates_valid_edge,
   test_addEdge_skips_missing_nodes,
+  test_addEdge_preserves_zero_weight,
   test_resolveIdentity_full_chain,
   test_resolveIdentity_unresolved,
   test_getIdentityPaths_single_path,

@@ -34,11 +34,15 @@ class ShellSensor {
     try {
       let psHistory = "";
       try {
-        const result = await execAsync(
-          `powershell -NoProfile -Command "(Get-PSReadLineOption).HistorySavePath"`,
-          { encoding: "utf8", timeout: 3000, windowsHide: true }
-        );
-        psHistory = (result.stdout || "").trim();
+        if (process.platform === "win32") {
+          const result = await execAsync(
+            `powershell -NoProfile -Command "(Get-PSReadLineOption).HistorySavePath"`,
+            { encoding: "utf8", timeout: 3000, windowsHide: true }
+          );
+          psHistory = (result.stdout || "").trim();
+        } else {
+          psHistory = path.join(process.env.HOME || "~", ".bash_history");
+        }
       } catch (_) {}
 
       if (psHistory && fs.existsSync(psHistory)) {

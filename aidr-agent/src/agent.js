@@ -14,6 +14,8 @@ const shellSensorModule = require("./sensors/shellSensor");
 const ShellSensor = shellSensorModule.ShellSensor || shellSensorModule.default || shellSensorModule;
 const { CodexSessionSensor } = require("./sensors/codexSessionSensor");
 const { OpenCodeSessionSensor } = require("./sensors/openCodeSessionSensor");
+const { HermesSessionSensor } = require("./sensors/hermesSessionSensor");
+const { KimiSessionSensor } = require("./sensors/kimiSessionSensor");
 const { CodexProxy } = require("./proxy/codexProxy");
 const { RuleEngine } = require("./engine/ruleEngine");
 const { LLMClassifier } = require("./engine/llmClassifier");
@@ -110,7 +112,10 @@ class AIDRAgent {
     this.logger = new Logger(LOG_DIR, this.policy.agentId || "agent-" + Date.now().toString(36));
     this.auditLedger = new AuditLedger(LOG_DIR);
     this.semanticFeedback = new SemanticFeedbackStore(LOG_DIR);
-    this.telemetryQueue = new AsyncTelemetryQueue(event => this._persistTelemetry(event));
+    this.telemetryQueue = new AsyncTelemetryQueue(event => this._persistTelemetry(event), {
+      walPath: path.join(LOG_DIR, "aidr-telemetry-wal.json"),
+      deadLetterPath: path.join(LOG_DIR, "aidr-telemetry-dead-letter.jsonl")
+    });
     this.eventBus = new EventBus();
     this.adapterRegistry = createDefaultAdapterRegistry();
     this.events = [];
@@ -130,7 +135,7 @@ class AIDRAgent {
     this.dbDirty = false;
     this.dbEventCount = 0;
     this.dbPrunePending = false;
-    this.apiPort = Number(process.env.AIDR_AGENT_PORT || this.policy.port || 8787);
+    this.apiPort = Number(process.env.AIDR_AGENT_PORT || this.policy.port || 8788);
     this.sessionId = null;
   }
 
@@ -273,12 +278,33 @@ class AIDRAgent {
 
   _addEvent(category, severity, verdict, summary, detail = {}, tags = {}) {
     const now = new Date().toISOString();
+    const eventPid = Number(detail?.pid || detail?.processId || detail?.process_id || detail?.owningProcess || detail?.owning_process || 0);
+    const pidAttribution = eventPid > 0 ? this.sensors.process?.resolveAgentByPid?.(eventPid) : null;
+    const inferredAgentId = tags.agentId || detail?.agent || detail?.agentId || pidAttribution?.agentId || null;
+    let inferredSession = null;
+    if (!tags.sessionId && !detail?.sessionId && inferredAgentId) {
+      const normalizeAgent = value => String(value || "").toLowerCase().replace(/^openai-/, "").replace(/[^a-z0-9]/g, "");
+      const agentKey = normalizeAgent(inferredAgentId);
+      const recent = (this.sessionPolicyEngine?.getSessions?.(false) || []).filter(session => {
+        const sessionAgent = normalizeAgent(session.agent);
+        const updatedAt = new Date(session.updatedAt || 0).getTime();
+        return sessionAgent && (sessionAgent === agentKey || sessionAgent.includes(agentKey) || agentKey.includes(sessionAgent))
+          && Date.now() - updatedAt <= 15 * 60 * 1000
+          && !session.endedAt;
+      });
+      if (recent.length === 1) inferredSession = recent[0];
+    }
+    const enrichedDetail = pidAttribution ? {
+      ...(detail || {}),
+      agentId: inferredAgentId,
+      attribution: detail?.attribution || pidAttribution
+    } : (detail || {});
     let event = normalizeEvent({
-      category, severity, verdict, summary, detail: detail || {}, timestamp: now, time: now,
+      category, severity, verdict, summary, detail: enrichedDetail, timestamp: now, time: now,
       source: tags.source || detail?.source || "agent",
-      sessionId: tags.sessionId || detail?.sessionId || this.sessionId,
-      agentId: tags.agentId || detail?.agent || detail?.agentId || null,
-      traceId: tags.traceId || detail?.traceId || null,
+      sessionId: tags.sessionId || detail?.sessionId || inferredSession?.id || this.sessionId,
+      agentId: inferredAgentId,
+      traceId: tags.traceId || detail?.traceId || inferredSession?.decisionTrace?.traceId || null,
       parentEventId: tags.parentEventId || detail?.parentEventId || null,
       policyVersion: tags.policyVersion || detail?.policyVersion || this.policy?.policyMeta?.revision || this.policy?.version || null,
       subject: tags.subject || detail?.subject || summary,
@@ -290,6 +316,22 @@ class AIDRAgent {
     });
     const session = event.sessionId ? this.sessionPolicyEngine?.getSession?.(event.sessionId) : null;
     event = enrichEvent(event, this.policy, session || { effectivePolicy: detail?.taskBoundary || {} });
+    // A post-observation sensor event must never be stored as an allowed event
+    // after it crosses a configured boundary. The sensor cannot retroactively
+    // claim prevention, so record an alert with an explicit observation proof.
+    if (event.boundaryScope && event.boundaryScope !== "within" && event.verdict === "allow") {
+      const boundaryRule = event.boundaryScope === "organization" ? "boundary.organization" : "boundary.task";
+      event.verdict = "alert";
+      event.severity = event.severity === "info" ? "medium" : event.severity;
+      event.matchedRule = event.matchedRule || boundaryRule;
+      event.detail = {
+        ...(event.detail || {}),
+        boundaryViolation: true,
+        enforcement: "post_observation_alert",
+        effectProof: { source: "sensor-post-observation", enforcementPoint: "Agent._addEvent", stage: "observed_after_execution", attempted: true, executed: true, prevented: false, boundaryScope: event.boundaryScope }
+      };
+      event = enrichEvent(event, this.policy, session || { effectivePolicy: detail?.taskBoundary || {} });
+    }
     if (this.eventIds.has(event.eventId)) return event;
     this.eventIds.add(event.eventId);
     this.events.push(event);
@@ -328,7 +370,7 @@ class AIDRAgent {
 
     this.sensors.process = new ProcessSensor(this.policy, this._addEvent.bind(this), this.enforcer, { statePath: path.join(LOG_DIR, "agent-discovery.json") }); await this.sensors.process.start();
     this.sensors.file = new FileSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.file.start();
-    this.sensors.network = new NetworkSensor(this.policy, this._addEvent.bind(this), this.enforcer); await this.sensors.network.start();
+    this.sensors.network = new NetworkSensor(this.policy, this._addEvent.bind(this), this.enforcer, this.sensors.process); await this.sensors.network.start();
     this.sensors.registry = new RegistrySensor(this.policy, this._addEvent.bind(this), this.ruleEngine); await this.sensors.registry.start();
     if (typeof ShellSensor !== "function") throw new Error("shell_sensor_constructor_unavailable");
     this.sensors.shell = new ShellSensor(this.policy, this._addEvent.bind(this), this.ruleEngine); await this.sensors.shell.start();
@@ -339,6 +381,12 @@ class AIDRAgent {
 
     this.sensors.openCode = new OpenCodeSessionSensor(this.policy, this._addEvent.bind(this), this.eventBus, this.sensors.process);
     await this.sensors.openCode.start();
+
+    this.sensors.hermes = new HermesSessionSensor(this.policy, this._addEvent.bind(this), this.eventBus);
+    await this.sensors.hermes.start();
+
+    this.sensors.kimi = new KimiSessionSensor(this.policy, this._addEvent.bind(this), this.eventBus);
+    await this.sensors.kimi.start();
 
     
     // Transparent proxy - retry until Codex releases port 15721

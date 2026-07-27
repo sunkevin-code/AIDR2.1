@@ -38,12 +38,43 @@ class AuditLedger {
     this.logDir = logDir;
     this.filePath = options.filePath || path.join(logDir, "aidr-audit-ledger.jsonl");
     this.maxExport = Number(options.maxExport || 500);
+    this.checkpointEvery = Math.max(1, Number(options.checkpointEvery || process.env.AIDR_AUDIT_CHECKPOINT_EVERY || 10));
+    this.signingKeyPath = options.signingKeyPath || path.join(logDir, "aidr-audit-signing-key.pem");
+    this.publicKeyPath = options.publicKeyPath || path.join(logDir, "aidr-audit-signing-key.pub.pem");
+    this.checkpointPath = options.checkpointPath || path.join(logDir, "aidr-audit-checkpoint.json");
+    this.privateKey = null;
+    this.publicKey = null;
+    this.keyId = null;
+    this.checkpoint = { status: "not_created", valid: null, path: this.checkpointPath, keyId: null };
     this.sequence = 0;
     this.lastHash = GENESIS_HASH;
     this.tamperedAt = null;
     this.loaded = false;
     this.verification = { valid: true, status: "empty", path: this.filePath, records: 0, lastHash: GENESIS_HASH };
+    this._ensureSigningKey();
     this._load();
+    this.verifyCheckpoint();
+  }
+
+  _ensureSigningKey() {
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true });
+      if (fs.existsSync(this.signingKeyPath) && fs.existsSync(this.publicKeyPath)) {
+        this.privateKey = fs.readFileSync(this.signingKeyPath, "utf8");
+        this.publicKey = fs.readFileSync(this.publicKeyPath, "utf8");
+      } else {
+        const pair = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
+        this.privateKey = pair.privateKey;
+        this.publicKey = pair.publicKey;
+        fs.writeFileSync(this.signingKeyPath, this.privateKey, { encoding: "utf8", mode: 0o600 });
+        fs.writeFileSync(this.publicKeyPath, this.publicKey, { encoding: "utf8", mode: 0o644 });
+      }
+      this.keyId = sha256(this.publicKey).slice(0, 16);
+    } catch (_) {
+      this.privateKey = null;
+      this.publicKey = null;
+      this.keyId = null;
+    }
   }
 
   _load() {
@@ -105,6 +136,7 @@ class AuditLedger {
       this.sequence = nextSequence;
       this.lastHash = record.recordHash;
       this.verification = { valid: true, status: "verified", path: this.filePath, records: this.sequence, lastHash: this.lastHash };
+      if (this.sequence % this.checkpointEvery === 0) this._writeCheckpoint(record);
       return { ok: true, status: "appended", sequence: this.sequence, recordHash: this.lastHash };
     } catch (error) {
       return { ok: false, status: "write_error", error: error.message };
@@ -157,8 +189,49 @@ class AuditLedger {
       bytes,
       sequence: this.sequence,
       loaded: this.loaded,
-      tamperedAt: this.tamperedAt
+      tamperedAt: this.tamperedAt,
+      checkpoint: this.checkpoint,
+      checkpointEvery: this.checkpointEvery,
+      keyId: this.keyId
     };
+  }
+
+  _writeCheckpoint(record) {
+    if (!this.privateKey || !this.publicKey) return;
+    const payload = { ledgerVersion: LEDGER_VERSION, sequence: record.sequence, lastHash: record.recordHash };
+    try {
+      const signer = crypto.createSign("RSA-SHA256");
+      signer.update(canonicalJson(payload));
+      signer.end();
+      const checkpoint = { version: "aidr-audit-checkpoint-v1", keyId: this.keyId, createdAt: new Date().toISOString(), payload, signature: signer.sign(this.privateKey, "base64") };
+      const tmp = this.checkpointPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(checkpoint, null, 2), "utf8");
+      fs.renameSync(tmp, this.checkpointPath);
+      this.checkpoint = { status: "verified", valid: true, path: this.checkpointPath, keyId: this.keyId, sequence: payload.sequence, lastHash: payload.lastHash, createdAt: checkpoint.createdAt };
+    } catch (error) {
+      this.checkpoint = { status: "write_error", valid: false, path: this.checkpointPath, keyId: this.keyId, error: error.message };
+    }
+  }
+
+  verifyCheckpoint() {
+    if (!fs.existsSync(this.checkpointPath)) {
+      this.checkpoint = { status: "not_created", valid: null, path: this.checkpointPath, keyId: this.keyId };
+      return this.checkpoint;
+    }
+    try {
+      const checkpoint = JSON.parse(fs.readFileSync(this.checkpointPath, "utf8"));
+      const verifier = crypto.createVerify("RSA-SHA256");
+      verifier.update(canonicalJson(checkpoint.payload));
+      verifier.end();
+      const signatureValid = Boolean(this.publicKey && verifier.verify(this.publicKey, checkpoint.signature, "base64"));
+      const sequenceValid = Number(checkpoint.payload?.sequence || 0) <= this.sequence;
+      const hashValid = Number(checkpoint.payload?.sequence || 0) === this.sequence ? checkpoint.payload.lastHash === this.lastHash : true;
+      this.checkpoint = { status: signatureValid && sequenceValid && hashValid ? "verified" : "invalid", valid: signatureValid && sequenceValid && hashValid, path: this.checkpointPath, keyId: this.keyId, sequence: checkpoint.payload?.sequence || 0, lastHash: checkpoint.payload?.lastHash || null };
+      return this.checkpoint;
+    } catch (error) {
+      this.checkpoint = { status: "invalid", valid: false, path: this.checkpointPath, keyId: this.keyId, error: error.message };
+      return this.checkpoint;
+    }
   }
 
   _setVerification(value) {

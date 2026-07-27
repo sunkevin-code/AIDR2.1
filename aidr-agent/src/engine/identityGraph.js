@@ -28,7 +28,7 @@ class IdentityGraph {
 
     const node = {
       id: String(id), type, label: String(label),
-      trust: Math.max(0, Math.min(1, Number(trust) || 0.5)),
+      trust: Math.max(0, Math.min(1, Number.isFinite(Number(trust)) ? Number(trust) : 0.5)),
       risk: metadata.risk || 0,
       createdAt: metadata.createdAt || new Date().toISOString(),
       owner: metadata.owner || null,
@@ -49,7 +49,7 @@ class IdentityGraph {
 
     const edge = {
       source: String(source), target: String(target),
-      relation, weight: Math.max(0, Math.min(1, Number(weight) || 1)),
+      relation, weight: Math.max(0, Math.min(1, Number.isFinite(Number(weight)) ? Number(weight) : 1)),
       timestamp: new Date().toISOString()
     };
     this.edges.push(edge);
@@ -71,11 +71,21 @@ class IdentityGraph {
     const identity = chain.find(n => n.type === "identity");
     const user = chain.find(n => n.type === "user");
 
-    // Compute trust chain product (edges from root to agent, reverse order)
+    // Compute trust along the actual parent -> child edges. The resolved chain
+    // is agent -> identity -> user, while the graph is stored user -> agent.
     let trust = 1.0;
-    for (let i = chain.length - 1; i > 0; i--) {
-      const edge = this.edges.find(e => e.source === chain[i - 1].id && e.target === chain[i].id);
-      if (edge) trust *= edge.weight;
+    for (let i = 0; i < chain.length - 1; i++) {
+      const child = chain[i];
+      const parent = chain[i + 1];
+      const edge = this.edges.find(e =>
+        (e.source === parent.id && e.target === child.id) ||
+        (e.source === child.id && e.target === parent.id)
+      );
+      if (!edge) {
+        trust = 0;
+        break;
+      }
+      trust *= edge.weight;
     }
 
     return {

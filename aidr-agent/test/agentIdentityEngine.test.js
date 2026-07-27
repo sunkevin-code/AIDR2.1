@@ -14,6 +14,8 @@ assert.equal(opencode.profile.id, "opencode");
 assert.equal(opencode.score, 100);
 const claude = engine.matchProcess({ Name: "claude.exe", ProcessId: 102, CommandLine: "claude --model sonnet" });
 assert.equal(claude.profile.id, "claude-code");
+const kimi = engine.matchProcess({ Name: "Kimi.exe", ProcessId: 106, CommandLine: "C:\\Users\\test\\AppData\\Local\\Programs\\kimi-desktop\\Kimi.exe" });
+assert.equal(kimi.profile.id, "kimi");
 
 const cline = engine.matchProcess({ Name: "Code.exe", ProcessId: 103, CommandLine: "Code.exe --extensionDevelopmentPath=saoudrizwan.claude-dev" });
 assert.equal(cline.profile.id, "cline");

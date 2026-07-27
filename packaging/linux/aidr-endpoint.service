@@ -1,0 +1,27 @@
+[Unit]
+Description=AIDR Endpoint for Linux
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/aidr/agent
+Environment=AIDR_ENDPOINT_HOME=/var/lib/aidr
+Environment=AIDR_AGENT_PORT=8788
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/aidr/agent/src/agent.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/lib/aidr /opt/aidr/agent/logs
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -193,10 +193,23 @@ class AgentAdapterRegistry {
   getManifests() { return this.list().map(adapter => adapter.getManifest()); }
 }
 
+class NativeSessionAdapter extends AgentAdapter {
+  constructor(id, label, vendor, protocol) {
+    super({
+      id, label, vendor, protocol,
+      category: "ai_agent",
+      realtime: true,
+      capabilities: ["prompt", "tool", "response", "session"]
+    });
+  }
+}
+
 function createDefaultAdapterRegistry() {
   const registry = new AgentAdapterRegistry();
   registry.register(new GenericAgentAdapter());
   registry.register(new OpenCodeAdapter());
+  registry.register(new NativeSessionAdapter("hermes", "Hermes", "Hermes", "hermes-state-db-v1"));
+  registry.register(new NativeSessionAdapter("kimi", "Kimi", "Moonshot AI", "kimi-wire-v1"));
   return registry;
 }
 
@@ -236,6 +249,7 @@ module.exports = {
   AgentAdapter,
   GenericAgentAdapter,
   OpenCodeAdapter,
+  NativeSessionAdapter,
   AgentAdapterRegistry,
   createDefaultAdapterRegistry,
   normalizeHookName

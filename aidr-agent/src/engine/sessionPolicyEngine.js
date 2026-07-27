@@ -10,6 +10,7 @@ const { buildSessionContextGraph } = require("./sessionContextGraph");
 const { readJsonWithBackup, writeJsonAtomic } = require("../utils/atomicJson");
 const { createDecisionContract } = require("./decisionContract");
 const { buildIntentEvidence } = require("./intentEvidence");
+const { buildCatalog, mapEventToAtoms, classifyBoundary } = require("./behaviorAtoms");
 
 const WRITE_INTENT = /(修改|编辑|创建|生成|实现|修复|优化|重构|构建|打包|安装|部署|删除|写入|update|edit|modify|change|create|generate|implement|fix|optimi[sz]e|refactor|build|package|install|deploy|delete|write)/i;
 const SHELL_INTENT = /(运行|启动|测试|构建|编译|安装|执行|命令|run|start|test|build|compile|install|execute|command|shell|powershell|npm|git|dotnet|cargo)/i;
@@ -426,6 +427,7 @@ class SessionPolicyEngine {
       else if (localDecision?.verdict === "block") decision = localDecision;
       else if (semanticDecision) decision = semanticDecision;
       else if (localDecision) decision = localDecision;
+      decision = this._applyEffectState(decision, hookName);
       session.decisionTrace = this._buildDecisionTrace({ session, input, hookName, localIntent, localDecision, semantic, intent, decision });
       session.prompt = prompt;
       session.rawPrompt = rawPrompt;
@@ -477,11 +479,12 @@ class SessionPolicyEngine {
         }, sessionId);
     } else if (hookName === "PreToolUse" || hookName === "PermissionRequest") {
       decision = this._evaluateTool(session, input, options.semanticResult);
+      decision = this._applyEffectState(decision, hookName);
       output = this._decisionOutput(hookName, decision);
       const actionDetail = this._safeToolDetail(input);
       if (decision.drift) actionDetail.behaviorDrift = decision.drift;
       if (decision.semantic) actionDetail.semanticAnalysis = decision.semantic;
-      session.decisionTrace = this._buildDecisionTrace({ session, input, hookName, localIntent: null, localDecision: null, semantic: options.semanticResult, intent: { policy: session.effectivePolicy || {}, capabilities: session.effectivePolicy?.capabilities || {}, riskLevel: session.intent?.riskLevel || "unknown", riskScore: session.intent?.riskScore || null }, decision });
+      session.decisionTrace = this._buildDecisionTrace({ session, input, hookName, localIntent: null, localDecision: null, semantic: options.semanticResult, intent: { policy: session.effectivePolicy || {}, capabilities: session.effectivePolicy?.capabilities || {}, riskLevel: session.intent?.riskLevel || "unknown", riskScore: session.intent?.riskScore || null, behaviorAtoms: decision.behaviorAtoms || [], boundaries: decision.boundary || null, mappingUnknown: decision.mappingUnknown, calibrationVersion: decision.calibrationVersion }, decision });
       actionDetail.decisionTrace = session.decisionTrace;
       this._record(session, hookName, input.tool_name || "unknown", decision.verdict,
         `${input.tool_name || "tool"}: ${decision.reason}`, actionDetail);
@@ -501,6 +504,7 @@ class SessionPolicyEngine {
       }
     } else if (hookName === "PostToolUse") {
       decision = this._evaluateToolResponse(input);
+      decision = this._applyEffectState(decision, hookName);
       output = decision.verdict === "block" ? {
         decision: "block",
         reason: decision.reason,
@@ -532,12 +536,60 @@ class SessionPolicyEngine {
     return { output, decision, session: this._publicSession(session) };
   }
 
+  _preflightBehavior(session, input) {
+    const toolName = String(input.tool_name || "unknown");
+    const toolInput = input.tool_input || {};
+    const event = {
+      category: "agent_tool",
+      eventType: "tool_call",
+      summary: `Agent tool invocation: ${toolName}`,
+      sessionId: session.id,
+      agentId: session.agent,
+      object: toolName,
+      detail: { toolName, toolInput, cwd: input.cwd || session.cwd || this.policy.workspaceRoot }
+    };
+    const catalog = buildCatalog(this.policy);
+    const mapped = mapEventToAtoms(event);
+    const checks = mapped.map(item => {
+      const atom = catalog.find(candidate => candidate.id === String(item.atomId).toUpperCase()) || {
+        id: String(item.atomId || "UNMAPPED.UNKNOWN").toUpperCase(),
+        domain: String(item.atomId || "UNMAPPED").split(".")[0],
+        baseLevel: 5,
+        highRisk: true
+      };
+      return { ...item, atomId: atom.id, boundary: classifyBoundary(atom, { ...event, mappingRule: item.rule }, this.policy, session) };
+    });
+    const boundary = checks.find(item => item.boundary.scope === "organization")?.boundary
+      || checks.find(item => item.boundary.scope === "task")?.boundary
+      || checks[0]?.boundary
+      || { scope: "within", requiredLevel: 0, allowedLevel: 0, layers: {} };
+    const unknown = checks.some(item => item.atomId === "UNMAPPED.UNKNOWN" || Number(item.score || 0) < 0.65);
+    return { atoms: checks, boundary, unknown, calibrationVersion: "rules-calibration-pending-v1" };
+  }
+
   _evaluateTool(session, input, semanticResult = null) {
     const toolName = String(input.tool_name || "unknown");
     const toolInput = input.tool_input || {};
     const effective = session.effectivePolicy || this.analyzePrompt("", input).policy;
     const mode = effective.mode || this.policy.mode || "monitor";
     let block = null;
+    const preflight = this._preflightBehavior(session, input);
+    const preflightMeta = {
+      behaviorAtoms: preflight.atoms,
+      boundary: preflight.boundary,
+      mappingUnknown: preflight.unknown,
+      calibrationVersion: preflight.calibrationVersion,
+      enforcementPoint: "SessionPolicyEngine.preflight"
+    };
+    if (preflight.boundary.scope !== "within") {
+      block = {
+        reason: `${preflight.boundary.scope === "organization" ? "Organization" : "Task"} boundary denied behavior atom ${preflight.atoms.map(item => item.atomId).join(", ")}`,
+        rule: preflight.boundary.scope === "organization" ? "boundary.organization" : "boundary.task"
+      };
+    } else if (preflight.unknown) {
+      block = { reason: "Behavior atom mapping is below the trusted threshold", rule: "behavior_atom.unmapped" };
+    }
+    const finalize = result => ({ ...preflightMeta, ...result });
     const semanticDecision = this._semanticToolDecision(semanticResult, input);
     const threatAnalysis = this.threatDetector.inspect(JSON.stringify(toolInput), { source: "tool_input", agent: session.agent, tool: toolName });
     const threatDecision = this._threatDecision(threatAnalysis);
@@ -585,13 +637,13 @@ class SessionPolicyEngine {
     const approval = !block ? this._maybeRequireApproval(session, input, effective, threatAnalysis) : null;
     const drift = this.behaviorDriftEngine.observeTool(session, input, effective);
     if (!block && semanticDecision?.verdict === "block") block = { reason: semanticDecision.reason, rule: semanticDecision.rule };
-    if (!block && approval) return approval;
-    if (!block && threatAlert) return { ...threatAlert, drift, semantic: semanticResult || null, threatFindings: threatAnalysis.findings };
-    if (!block && semanticDecision?.verdict === "alert") return { verdict: "alert", reason: semanticDecision.reason, rule: semanticDecision.rule, drift, semantic: semanticResult || null, threatFindings: threatAnalysis.findings };
+    if (!block && approval) return finalize(approval);
+    if (!block && threatAlert) return finalize({ ...threatAlert, drift, semantic: semanticResult || null, threatFindings: threatAnalysis.findings });
+    if (!block && semanticDecision?.verdict === "alert") return finalize({ verdict: "alert", reason: semanticDecision.reason, rule: semanticDecision.rule, drift, semantic: semanticResult || null, threatFindings: threatAnalysis.findings });
     if (!block && drift.shouldBlock) block = { reason: `Behavior drift blocked: ${drift.summary}`, rule: "behavior.drift" };
-    if (!block) return { verdict: "allow", reason: "Effective session policy allowed this action", rule: "session.allow", drift, semantic: semanticResult || null, threatFindings: threatAnalysis.findings };
-    if (mode !== "enforce") return { verdict: "alert", reason: block.reason, rule: block.rule, drift, semantic: semanticResult || null };
-    return { verdict: "block", reason: block.reason, rule: block.rule, drift, semantic: semanticResult || null };
+    if (!block) return finalize({ verdict: "allow", reason: "Effective session policy allowed this action", rule: "session.allow", drift, semantic: semanticResult || null, threatFindings: threatAnalysis.findings });
+    if (mode !== "enforce") return finalize({ verdict: "alert", reason: block.reason, rule: block.rule, drift, semantic: semanticResult || null });
+    return finalize({ verdict: "block", reason: block.reason, rule: block.rule, drift, semantic: semanticResult || null });
   }
 
   _threatDecision(analysis) {
@@ -648,7 +700,7 @@ class SessionPolicyEngine {
     path.push({ stage: "semantic_model", outcome: semanticUsed ? (semantic.verdict || semantic.riskLevel || "analyzed") : "not_used", rule: semanticUsed ? (semantic.reason || null) : null, reason: semanticUsed ? "Semantic result included in final policy decision" : "Rules-only fallback or semantic analysis unavailable" });
     path.push({ stage: "least_privilege_policy", outcome: intent?.policy?.mode || "monitor", rule: "session_policy.resolve", reason: "Capabilities constrained by global, workspace, Agent and session boundaries" });
     path.push({ stage: "final_enforcement", outcome: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" });
-    const decisionContract = createDecisionContract({ session, input, hookName, localIntent, localDecision, semantic, intent, decision, traceId });
+    const decisionContract = createDecisionContract({ session, input, hookName, localIntent, localDecision, semantic, intent, decision, traceId, behaviorAtoms: intent?.behaviorAtoms || decision?.behaviorAtoms || [], boundaries: intent?.boundaries || decision?.boundary || null });
     return {
       schemaVersion: "aidr-decision-trace-v2",
       contractVersion: decisionContract.schemaVersion,
@@ -669,8 +721,9 @@ class SessionPolicyEngine {
       localRules: { source: "rules_engine", analyzer: localIntent?.analyzer || "aidr-local-rules", verdict: localDecision?.verdict || "allow", rule: localDecision?.rule || null, riskLevel: localIntent?.riskLevel || intent?.riskLevel || "unknown", riskScore: localIntent?.riskScore ?? intent?.riskScore ?? null },
       semanticModel: semanticUsed ? { source: semantic.source || "semantic_model", provider: semantic.provider || null, model: semantic.model || null, verdict: semantic.verdict || null, severity: semantic.severity || null, riskLevel: semantic.riskLevel || null, confidence: semantic.confidence ?? 0 } : { source: "rules_only", status: "not_used_or_unavailable" },
       sessionPolicy: { source: "least_privilege_policy", capabilities: intent?.capabilities || {}, requireApproval: intent?.policy?.requireApproval || {}, resolution: intent?.policy?.resolution || null },
+      behavior: { atoms: intent?.behaviorAtoms || decision?.behaviorAtoms || [], boundary: intent?.boundaries || decision?.boundary || null, unknown: Boolean(intent?.mappingUnknown || decision?.mappingUnknown), calibrationVersion: intent?.calibrationVersion || decision?.calibrationVersion || null },
       decisionPath: path,
-      final: { verdict: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed" },
+      final: { verdict: decision?.verdict || "allow", rule: decision?.rule || "policy.default_allow", reason: decision?.reason || "Policy allowed", enforcement: decision?.enforcement || { stage: decision?.verdict === "block" ? "preflight_prevented" : "authorized", point: decision?.enforcementPoint || "SessionPolicyEngine", proof: decision?.effectProof || null } },
       decisionContract
     };
   }
@@ -790,6 +843,24 @@ class SessionPolicyEngine {
     if (analysis.detected) return { verdict: "alert", reason: analysis.summary, rule: `response.${analysis.categories[0] || "threat"}`, threatFindings: analysis.findings };
     if (SECRET_OUTPUT.test(response)) return { verdict: "block", reason: "Potential credential material removed from tool output", rule: "response.secret" };
     return { verdict: "allow", reason: "No high-confidence response threat detected", rule: "response.allow" };
+  }
+
+  _applyEffectState(decision, hookName) {
+    const result = { ...(decision || { verdict: "allow", reason: "Policy allowed", rule: "policy.default_allow" }) };
+    const verdict = String(result.verdict || "allow").toLowerCase();
+    const postTool = hookName === "PostToolUse";
+    const blockedBeforeExecution = verdict === "block" && !postTool;
+    const stage = postTool ? (verdict === "block" ? "completed_withheld" : "completed") : blockedBeforeExecution ? "preflight_prevented" : "authorized";
+    const proof = {
+      source: postTool ? "agent-hook" : "session-policy-preflight",
+      enforcementPoint: result.enforcementPoint || "SessionPolicyEngine",
+      stage,
+      attempted: postTool,
+      executed: postTool,
+      prevented: blockedBeforeExecution,
+      observedAt: new Date().toISOString()
+    };
+    return { ...result, enforcementPoint: result.enforcementPoint || "SessionPolicyEngine", effectProof: proof, effect: { attempted: proof.attempted, executed: proof.executed, prevented: proof.prevented, source: proof.source, proof }, enforcement: { stage, point: proof.enforcementPoint, proof } };
   }
 
   _decisionOutput(hookName, decision) {

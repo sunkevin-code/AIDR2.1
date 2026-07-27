@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const childProcess = require("child_process");
+const crypto = require("crypto");
 const zlib = require("zlib");
 
 const root = __dirname;
@@ -44,15 +45,45 @@ const payload = zlib.gzipSync(Buffer.from(JSON.stringify({
   files: collectFiles(agentRoot)
 }), "utf8"), { level: 9 }).toString("base64");
 const uiSource = fs.readFileSync(path.join(root, "ui", "index.html"), "utf8");
+const abgcRuntime = fs.readFileSync(path.join(root, "ui", "abgc.js"), "utf8");
 const uiRuntime = fs.readFileSync(path.join(root, "ui", "runtime-adapter.js"), "utf8");
-const canonicalUi = uiSource.includes("id=\"aidr-runtime-adapter\"")
-  ? uiSource
-  : uiSource.replace("</body>", `<script id="aidr-runtime-adapter">${uiRuntime}</script></body>`);
+function upsertInlineScript(html, id, source) {
+  const expression = new RegExp(`<script\\s+id=["']${id}["'][^>]*>[\\s\\S]*?<\\/script>`, "i");
+  const script = `<script id="${id}">${source}</script>`;
+  return expression.test(html)
+    ? html.replace(expression, () => script)
+    : html.replace("</body>", `${script}</body>`);
+}
+const canonicalUi = upsertInlineScript(
+  upsertInlineScript(uiSource, "aidr-abgc-runtime", abgcRuntime),
+  "aidr-runtime-adapter",
+  uiRuntime
+);
+let gitCommit = "unknown";
+let gitDirty = null;
+try {
+  gitCommit = childProcess.execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
+    cwd: path.join(root, ".."),
+    encoding: "utf8",
+    windowsHide: true
+  }).trim();
+  gitDirty = childProcess.execFileSync("git", ["status", "--porcelain"], {
+    cwd: path.join(root, ".."),
+    encoding: "utf8",
+    windowsHide: true
+  }).trim().length > 0;
+} catch (_) {}
+const buildInfo = {
+  gitCommit,
+  gitDirty,
+  builtAt: new Date().toISOString(),
+  uiRevision: crypto.createHash("sha256").update(uiSource).update(abgcRuntime).update(uiRuntime).digest("hex").slice(0, 16)
+};
 const endpointSource = fs.readFileSync(path.join(root, "endpoint.js"), "utf8");
 childProcess.execFileSync(process.execPath, [path.join(root, "build-service-host.js")], { stdio: "inherit" });
 const serviceHostPath = path.join(root, "native", "AIDR.ServiceHost.exe");
 const serviceHostPayload = fs.readFileSync(serviceHostPath).toString("base64");
-fs.writeFileSync(bundle, `globalThis.__AIDR_AGENT_PAYLOAD=${JSON.stringify(payload)};\nglobalThis.__AIDR_SERVICE_HOST_PAYLOAD=${JSON.stringify(serviceHostPayload)};\nglobalThis.__AIDR_UI_HTML__=${JSON.stringify(canonicalUi)};\n${endpointSource}`, "utf8");
+fs.writeFileSync(bundle, `globalThis.__AIDR_AGENT_PAYLOAD=${JSON.stringify(payload)};\nglobalThis.__AIDR_SERVICE_HOST_PAYLOAD=${JSON.stringify(serviceHostPayload)};\nglobalThis.__AIDR_UI_HTML__=${JSON.stringify(canonicalUi)};\nglobalThis.__AIDR_BUILD_INFO__=${JSON.stringify(buildInfo)};\n${endpointSource}`, "utf8");
 fs.writeFileSync(config, JSON.stringify({
   main: bundle,
   output: blob,
@@ -70,3 +101,4 @@ run(postject, [
 if (fs.existsSync(exe)) fs.unlinkSync(exe);
 fs.renameSync(buildExe, exe);
 console.log(`Built ${exe}`);
+console.log(`Build identity ${JSON.stringify(buildInfo)}`);

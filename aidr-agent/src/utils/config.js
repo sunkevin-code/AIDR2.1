@@ -39,7 +39,7 @@ function savePolicy(policyPath, policy) {
 function getDefaultPolicy() {
   return {
     agentId: "", agentType: "codex", version: "2.2.4", mode: "enforce",
-    workspaceRoot: process.cwd(), serverUrl: "", port: 8787,
+    workspaceRoot: process.cwd(), serverUrl: "", port: 8788,
     sensors: {
       process: { enabled: true }, file: { enabled: true },
       network: { enabled: true }, mcp_gateway: { enabled: true },

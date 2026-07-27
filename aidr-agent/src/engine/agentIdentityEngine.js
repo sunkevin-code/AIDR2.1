@@ -20,6 +20,16 @@ const AGENT_CATALOG = [
   { id: "open-interpreter", label: "Open Interpreter", vendor: "Open Interpreter", category: "terminal-agent", processNames: ["open-interpreter.exe", "interpreter.exe", "open-interpreter"], commandTokens: ["open-interpreter", "interpreter"], configPaths: ["%USERPROFILE%\\.open-interpreter"] }
 ];
 
+AGENT_CATALOG.push({
+  id: "kimi",
+  label: "Kimi",
+  vendor: "Moonshot AI",
+  category: "ai-desktop",
+  processNames: ["kimi.exe", "kimi", "kimi-webbridge.exe", "kimi-webbridge"],
+  commandTokens: ["kimi-desktop", "kimi-code", "kimi-webbridge", "com.moonshot.kimichat"],
+  configPaths: ["%APPDATA%\\kimi-desktop", "%USERPROFILE%\\.kimi", "%USERPROFILE%\\.kimi-webbridge"]
+});
+
 const GENERIC_HOSTS = new Set(["code.exe", "code-insiders.exe", "q.exe", "q"]);
 
 function expandPath(value) {

@@ -16,6 +16,10 @@ class RegistrySensor {
 
   async start() {
     if (!this.policy.sensors?.registry?.enabled) return;
+    if (process.platform !== "win32") {
+      this.addEvent("system", "info", "allow", "Registry sensor unavailable on this platform", { platform: process.platform });
+      return;
+    }
     this.active = true;
     this.addEvent("system", "info", "allow", "Registry sensor started");
     this.interval = setInterval(() => { this.poll().catch(() => {}); }, 10000);

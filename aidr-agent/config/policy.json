@@ -6,7 +6,7 @@
   "workspaceRoot": "C:\\Users\\OseasyVM\\Documents",
   "serverUrl": "http://127.0.0.1:8888",
   "serverAuthToken": "",
-  "port": 8787,
+  "port": 8788,
   "sensors": {
     "process": {
       "enabled": true,

@@ -100,7 +100,10 @@ function normalizeOccurrence(event = {}, atom = {}, mapping = {}, boundary = {})
       confidence: Number(mapping.confidence ?? event.atomConfidence ?? 0),
       mappingRule: mapping.mappingRule || event.mappingRule || null,
       mappingVersion: mapping.mappingVersion || "rules-v1",
-      candidates: mapping.candidates || []
+      candidates: mapping.candidates || [],
+      atoms: mapping.atoms || event.behaviorAtoms || [{ atomId: definition.id, role: "primary", score: Number(mapping.confidence ?? 0) }],
+      unknown: Boolean(mapping.unknown || event.mappingUnknown),
+      calibrationVersion: mapping.calibrationVersion || event.calibrationVersion || null
     },
     boundary: normalizedBoundary,
     decision: {
@@ -111,7 +114,7 @@ function normalizeOccurrence(event = {}, atom = {}, mapping = {}, boundary = {})
     effect: {
       attempted: suppliedEffect.attempted ?? true,
       executed: suppliedEffect.executed ?? null,
-      prevented: suppliedEffect.prevented ?? (verdict === "block" ? true : null),
+      prevented: suppliedEffect.prevented ?? (effectProof ? Boolean(effectProof.prevented) : null),
       proof: effectProof,
       source: suppliedEffect.source || (effectProof ? "runtime" : "inferred")
     },

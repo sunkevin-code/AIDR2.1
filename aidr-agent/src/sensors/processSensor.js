@@ -13,6 +13,8 @@ class ProcessSensor {
     this.interval = null;
     this.polling = false;
     this.seenProcesses = new Set();
+    this.pidAttributions = new Map();
+    this.pidAttributionTtlMs = Math.max(60000, Number(policy.sensors?.process?.pidAttributionTtlMs) || 24 * 60 * 60 * 1000);
     this.discoveryStatePath = options.statePath || null;
     this.discoveryPersistence = { source: "none", recovered: false, lastSaveAt: null, lastSaveError: null, saveFailures: 0, lastScanAt: null, lastScanError: null };
     this.stats = { totalDetected: 0, blocked: 0, agentDetections: 0 };
@@ -26,12 +28,22 @@ class ProcessSensor {
     this.discoveryPersistence.source = loaded.source;
     this.discoveryPersistence.recovered = loaded.recovered;
     if (Array.isArray(loaded.value?.agents)) this.agentIdentity.restore(loaded.value.agents);
+    for (const item of (Array.isArray(loaded.value?.pidAttributions) ? loaded.value.pidAttributions : [])) {
+      if (Number(item.pid) > 0 && item.agentId && Date.now() - new Date(item.lastSeenAt || 0).getTime() <= this.pidAttributionTtlMs) {
+        this.pidAttributions.set(Number(item.pid), item);
+      }
+    }
   }
 
   _saveDiscoveryState() {
     if (!this.discoveryStatePath) return;
     try {
-      writeJsonAtomic(this.discoveryStatePath, { version: 1, savedAt: new Date().toISOString(), agents: this.agentIdentity.getSnapshot() });
+      writeJsonAtomic(this.discoveryStatePath, {
+        version: 2,
+        savedAt: new Date().toISOString(),
+        agents: this.agentIdentity.getSnapshot(),
+        pidAttributions: Array.from(this.pidAttributions.values())
+      });
       this.discoveryPersistence.source = "primary";
       this.discoveryPersistence.lastSaveAt = new Date().toISOString();
       this.discoveryPersistence.lastSaveError = null;
@@ -59,19 +71,43 @@ class ProcessSensor {
     this.polling = true;
     try {
       let output = "";
-      try {
-        const result = await execAsync(
-          "powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress\"",
-          { encoding: "utf8", timeout: 5000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
-        );
-        output = result.stdout || "";
-      } catch (_) { return; }
-
       let processes = [];
-      try { processes = JSON.parse(output); } catch (_) { return; }
+      try {
+        if (process.platform === "win32") {
+          const result = await execAsync(
+            "powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress\"",
+            { encoding: "utf8", timeout: 5000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
+          );
+          output = result.stdout || "";
+          processes = JSON.parse(output);
+        } else {
+          const result = await execAsync("ps -eo pid=,comm=,args=", { encoding: "utf8", timeout: 5000, maxBuffer: 8 * 1024 * 1024 });
+          processes = String(result.stdout || "").split(/\r?\n/).filter(Boolean).map(line => {
+            const match = line.trim().match(/^(\d+)\s+(\S+)\s*(.*)$/);
+            return match ? { ProcessId: Number(match[1]), Name: match[2], CommandLine: match[3] || match[2] } : null;
+          }).filter(Boolean);
+        }
+      } catch (_) { return; }
       if (!Array.isArray(processes)) processes = [processes];
 
       const discovery = this.agentIdentity.update(processes);
+      const seenAt = discovery.timestamp;
+      for (const agent of discovery.agents || []) {
+        for (const pid of agent.pids || []) {
+          if (Number(pid) <= 0) continue;
+          this.pidAttributions.set(Number(pid), {
+            pid: Number(pid),
+            agentId: agent.id,
+            agentLabel: agent.label,
+            confidence: agent.confidence || 0,
+            source: "process_discovery.pid",
+            lastSeenAt: seenAt
+          });
+        }
+      }
+      for (const [pid, attribution] of this.pidAttributions) {
+        if (Date.now() - new Date(attribution.lastSeenAt || 0).getTime() > this.pidAttributionTtlMs) this.pidAttributions.delete(pid);
+      }
       this.discoveryPersistence.lastScanAt = discovery.timestamp;
       this.discoveryPersistence.lastScanError = null;
       this._saveDiscoveryState();
@@ -122,6 +158,15 @@ class ProcessSensor {
   getAgentIdentities() { return this.agentIdentity.getSnapshot(); }
   getAgentCatalog() { return this.agentIdentity.getCatalog(); }
   getAgentDiscoveryStatus() { return this.agentIdentity.getStatus(); }
+  resolveAgentByPid(pid) {
+    const value = this.pidAttributions.get(Number(pid));
+    if (!value) return null;
+    if (Date.now() - new Date(value.lastSeenAt || 0).getTime() > this.pidAttributionTtlMs) {
+      this.pidAttributions.delete(Number(pid));
+      return null;
+    }
+    return { ...value };
+  }
 }
 
 module.exports = { ProcessSensor };

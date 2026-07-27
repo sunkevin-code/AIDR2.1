@@ -3,7 +3,7 @@ const http = require("http");
 const { normalizeEvent, validateEvent } = require("../observability/eventSchema");
 const { validateDecisionContract } = require("../engine/decisionContract");
 const { buildIntentEvidence } = require("../engine/intentEvidence");
-const { buildCatalog, enrichEvent, aggregateEvents, getOrganizationBoundary, deriveTaskLevels, constrainTaskBoundary } = require("../engine/behaviorAtoms");
+const { buildCatalog, enrichEvent, aggregateEvents, getOrganizationBoundary, classifyOrganizationAtom, deriveTaskLevels, constrainTaskBoundary } = require("../engine/behaviorAtoms");
 const { buildOrbitGraph } = require("../engine/behaviorAtomSchema");
 
 function startApiServer({
@@ -12,6 +12,7 @@ function startApiServer({
   sessionPolicyEngine, adapterRegistry, auditLedger, semanticFeedback, getRuntimeHealth, onPolicyUpdate, onPolicyRollback
 }) {
   const localToken = process.env.AIDR_LOCAL_TOKEN || "";
+  const apiAuth = loadApiAuth(localToken);
   const behaviorViewCache = new Map();
   const behaviorCacheTtlMs = 15000;
   const behaviorMetrics = {
@@ -69,21 +70,23 @@ function startApiServer({
     return path;
   }
 
-  function behaviorEvents(cutoffIso = null) {
+  function behaviorEvents(cutoffIso = null, limit = 100) {
+    const boundedLimit = clampInt(limit, 25, 5000, 100);
     if (db) {
       try {
         const rows = cutoffIso
-          ? queryAll("SELECT * FROM events WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?", [cutoffIso, 5000])
-          : queryAll("SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", [5000]);
+          ? queryAll("SELECT * FROM events WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?", [cutoffIso, boundedLimit])
+          : queryAll("SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", [boundedLimit]);
         if (rows.length) return rows.map(parseEventRow);
       } catch (_) {}
     }
-    return events.slice();
+    return events.slice(-boundedLimit);
   }
 
-  function behaviorView(agentId = "", windowHours = 24) {
+  function behaviorView(agentId = "", windowHours = 24, sourceLimit = 100, includeHost = false) {
     const normalizedWindow = Math.max(1, Number(windowHours || 24));
-    const cacheKey = String(agentId || "") + ":" + normalizedWindow + ":" + String(policy.version || policy.revision || "") + ":" + behaviorDataSignature();
+    const normalizedLimit = clampInt(sourceLimit, 25, 5000, 100);
+    const cacheKey = String(agentId || "") + ":" + normalizedWindow + ":" + normalizedLimit + ":" + String(Boolean(includeHost)) + ":" + String(policy.version || policy.revision || "") + ":" + behaviorDataSignature();
     const cached = behaviorViewCache.get(cacheKey);
     if (cached && Date.now() - cached.createdAt < behaviorCacheTtlMs) {
       behaviorMetrics.cacheHits++;
@@ -93,13 +96,41 @@ function startApiServer({
     const startedAt = Date.now();
     const cutoff = Date.now() - normalizedWindow * 3600000;
     const discovery = sensors.process?.getAgentDiscoveryStatus?.() || {};
+    const agentByPid = new Map();
+    for (const discoveredAgent of (discovery.agents || [])) {
+      for (const pid of (discoveredAgent.pids || [])) {
+        if (Number(pid) > 0) agentByPid.set(Number(pid), discoveredAgent);
+      }
+    }
     const sessionMap = new Map((sessionPolicyEngine?.getSessions?.(false) || []).map(session => [String(session.id), session]));
-    const source = behaviorEvents(new Date(cutoff).toISOString()).filter(event => {
+    const rawSource = behaviorEvents(new Date(cutoff).toISOString(), normalizedLimit);
+    const attributedSource = rawSource.map(event => {
+      const detail = event.detail || {};
+      const pid = Number(detail.pid || detail.processId || detail.process_id || detail.owningProcess || detail.owning_process || event.pid || 0);
+      const discoveredAgent = pid > 0 ? (agentByPid.get(pid) || sensors.process?.resolveAgentByPid?.(pid)) : null;
+      if (!discoveredAgent || event.agentId || event.agent || detail.agentId) return event;
+      return {
+        ...event,
+        agentId: discoveredAgent.id,
+        detail: {
+          ...detail,
+          agentId: discoveredAgent.id,
+          agentLabel: discoveredAgent.label,
+          attribution: { source: "process_discovery.pid", pid, confidence: discoveredAgent.confidence || 0 }
+        }
+      };
+    });
+    const inWindowSource = attributedSource.filter(event => {
       const timestamp = new Date(event.timestamp || event.time || 0).getTime();
+      return !timestamp || timestamp >= cutoff;
+    });
+    const source = inWindowSource.filter(event => {
       const eventAgentId = String(event.agentId || event.agent || event.detail?.agentId || "");
-      return (!agentId || eventAgentId === String(agentId)) && (!timestamp || timestamp >= cutoff);
+      const sessionId = event.sessionId || event.session_id || event.detail?.sessionId;
+      return (includeHost || Boolean(eventAgentId || sessionId))
+        && (!agentId || eventAgentId === String(agentId));
     }).map(event => enrichEvent(event, policy, sessionMap.get(String(event.sessionId || "")) || event.session || {}));
-    const value = { source, aggregate: aggregateEvents(source, policy, event => sessionMap.get(String(event.sessionId || "")) || event.session || {}), discovery, generatedAt: new Date().toISOString() };
+    const value = { source, aggregate: aggregateEvents(source, policy, event => sessionMap.get(String(event.sessionId || "")) || event.session || {}), discovery, generatedAt: new Date().toISOString(), sourceLimit: normalizedLimit, sourceTruncated: rawSource.length >= normalizedLimit, excludedHostEvents: includeHost ? 0 : Math.max(0, inWindowSource.length - source.length) };
     behaviorMetrics.lastDurationMs = Date.now() - startedAt;
     behaviorMetrics.lastSourceCount = source.length;
     behaviorMetrics.lastGeneratedAt = value.generatedAt;
@@ -117,8 +148,10 @@ function startApiServer({
     const url = new URL(req.url, `http://127.0.0.1:${apiPort}`);
     setSecurityHeaders(res);
 
-    if (localToken && !validToken(req.headers["x-aidr-token"], localToken)) {
-      return sendJson(res, 401, { error: "unauthorized" });
+    const authError = authorizeRequest(req, url.pathname, apiAuth);
+    if (authError) {
+      if (authError.status === 401) res.setHeader("WWW-Authenticate", "Bearer realm=AIDR");
+      return sendJson(res, authError.status, { error: authError.error, authentication: apiAuth.enabled ? "token-rbac" : "development-open" });
     }
 
     try {
@@ -136,6 +169,7 @@ function startApiServer({
 
     if (pathname === "/api/ui/contract" && req.method === "GET") {
       return ok({
+        authentication: apiAuth.enabled ? "token-rbac" : "development-open",
         schemaVersion: "aidr-ui-contract-v1",
         renderer: "canonical-view-registry",
         activeShell: "aidr-control-plane",
@@ -350,9 +384,20 @@ function startApiServer({
     if (pathname === "/api/behavior-atoms" && req.method === "GET") {
       const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 160);
       const occurrenceLimit = clampInt(url.searchParams.get("occurrenceLimit"), 1, 1000, 200);
-      const view = behaviorView(url.searchParams.get("agentId") || "", clampInt(url.searchParams.get("windowHours"), 1, 720, 24));
+      const sourceLimit = clampInt(url.searchParams.get("sourceLimit"), 25, 5000, 100);
+      const view = behaviorView(url.searchParams.get("agentId") || "", clampInt(url.searchParams.get("windowHours"), 1, 720, 24), sourceLimit, url.searchParams.get("includeHost") === "true");
       const statsById = new Map(view.aggregate.atoms.map(item => [item.atomId, item]));
-      const catalog = buildCatalog(policy).map(atom => ({ ...atom, stats: statsById.get(atom.id) || { atomId: atom.id, hits: 0, allow: 0, alert: 0, block: 0, agents: [], sessions: [], outOfOrganization: 0, outOfTask: 0 } }));
+      const boundary = getOrganizationBoundary(policy);
+      const catalog = buildCatalog(policy).map(atom => {
+        const organizationBoundary = classifyOrganizationAtom(atom, boundary);
+        return {
+          ...atom,
+          enabled: organizationBoundary.scope === "within",
+          policyAllowed: organizationBoundary.scope === "within",
+          stats: statsById.get(atom.id) || { atomId: atom.id, hits: 0, allow: 0, alert: 0, block: 0, agents: [], sessions: [], outOfOrganization: 0, outOfTask: 0 },
+          organizationBoundary
+        };
+      });
       const agents = trimBehaviorAgents(view.aggregate.agents, pathLimit);
       return ok({
         catalog,
@@ -360,8 +405,13 @@ function startApiServer({
         agents,
         occurrences: trimOccurrences(view.aggregate.occurrences, occurrenceLimit),
         totalOccurrences: view.aggregate.occurrences.length,
+        sourceLimit: view.sourceLimit,
+        sourceTruncated: view.sourceTruncated,
+        excludedHostEvents: view.excludedHostEvents,
+        scope: url.searchParams.get("includeHost") === "true" ? "agent_and_host" : "agent_only",
+        mappingQuality: view.aggregate.mappingQuality,
         unattributed: agents.filter(item => item.agentId === "unknown"),
-        boundary: getOrganizationBoundary(policy),
+        boundary,
         windowHours: clampInt(url.searchParams.get("windowHours"), 1, 720, 24),
         generatedAt: view.generatedAt,
         schemaVersion: "aidr-behavior-atom-v1",
@@ -382,17 +432,72 @@ function startApiServer({
     }
 
     if (pathname === "/api/behavior-atoms/stats" && req.method === "GET") {
-      const view = behaviorView(url.searchParams.get("agentId") || "", clampInt(url.searchParams.get("windowHours"), 1, 720, 24));
-      return ok({ stats: view.aggregate.atoms, agents: view.aggregate.agents, total: view.source.length });
+      const sourceLimit = clampInt(url.searchParams.get("sourceLimit"), 25, 5000, 100);
+      const view = behaviorView(url.searchParams.get("agentId") || "", clampInt(url.searchParams.get("windowHours"), 1, 720, 24), sourceLimit, url.searchParams.get("includeHost") === "true");
+      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 200, 40);
+      return ok({ stats: view.aggregate.atoms, agents: trimBehaviorAgents(view.aggregate.agents, pathLimit), mappingQuality: view.aggregate.mappingQuality, total: view.source.length, sourceLimit: view.sourceLimit, sourceTruncated: view.sourceTruncated, generatedAt: view.generatedAt });
     }
 
     const behaviorAtomMatch = pathname.match(/^\/api\/behavior-atoms\/([^/]+)$/);
     if (behaviorAtomMatch && req.method === "PUT") {
       const id = decodeURIComponent(behaviorAtomMatch[1]).toUpperCase();
       const body = await readBody(req);
-      const next = { ...(policy.behaviorAtoms || {}), custom: { ...((policy.behaviorAtoms || {}).custom || {}), [id]: { ...(body || {}) } } };
-      const updated = onPolicyUpdate ? onPolicyUpdate({ behaviorAtoms: next }) : Object.assign(policy, { behaviorAtoms: next });
-      return ok({ ok: true, atom: buildCatalog(updated).find(item => item.id === id) || null, policy: redactPolicy(updated) });
+      const catalogItem = buildCatalog(policy).find(item => item.id === id);
+      if (!catalogItem) return { status: 404, body: { error: "behavior_atom_not_found" } };
+      const current = policy.behaviorAtoms || {};
+      const custom = { ...(current.custom || {}) };
+      const enabled = body.enabled !== false;
+      const organization = policy.organizationBoundary || {};
+      const currentBoundary = getOrganizationBoundary(policy);
+      const currentCatalog = buildCatalog(policy);
+      const allowedAtoms = new Set();
+      const deniedAtoms = new Set();
+      currentCatalog.forEach(atom => {
+        const atomId = String(atom.id).toUpperCase();
+        if (classifyOrganizationAtom(atom, currentBoundary).scope === "within") allowedAtoms.add(atomId);
+        else deniedAtoms.add(atomId);
+      });
+      if (enabled) {
+        allowedAtoms.add(id);
+        deniedAtoms.delete(id);
+      } else {
+        allowedAtoms.delete(id);
+        deniedAtoms.add(id);
+      }
+      const disabled = new Set(deniedAtoms);
+      if (catalogItem.system) {
+        if (custom[id]) custom[id] = { ...custom[id], enabled };
+      } else {
+        custom[id] = { ...(custom[id] || {}), ...(body || {}), enabled, system: false };
+      }
+      const next = { ...current, custom, disabled: Array.from(disabled) };
+      const nextOrganization = {
+        ...organization,
+        allowedAtoms: Array.from(allowedAtoms),
+        deniedAtoms: Array.from(deniedAtoms),
+        source: "policy.organizationBoundary.atomAuthorization"
+      };
+      const patch = { behaviorAtoms: next, organizationBoundary: nextOrganization };
+      const updated = onPolicyUpdate ? onPolicyUpdate(patch) : Object.assign(policy, patch);
+      const updatedBoundary = getOrganizationBoundary(updated);
+      const updatedCatalog = buildCatalog(updated).map(atom => {
+        const organizationBoundary = classifyOrganizationAtom(atom, updatedBoundary);
+        return { ...atom, enabled: organizationBoundary.scope === "within", policyAllowed: organizationBoundary.scope === "within", organizationBoundary };
+      });
+      return ok({
+        ok: true,
+        atom: updatedCatalog.find(item => item.id === id) || null,
+        authorization: {
+          boundary: updatedBoundary,
+          catalog: updatedCatalog.map(atom => ({
+            id: atom.id,
+            enabled: atom.enabled,
+            policyAllowed: atom.policyAllowed,
+            organizationBoundary: atom.organizationBoundary
+          }))
+        },
+        policy: redactPolicy(updated)
+      });
     }
 
     if (behaviorAtomMatch && req.method === "DELETE") {
@@ -414,7 +519,7 @@ function startApiServer({
       const agentId = decodeURIComponent(agentOrbitMatch[1]);
       const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 160);
       const eventLimit = clampInt(url.searchParams.get("eventLimit"), 1, 1000, 200);
-      const view = behaviorView(agentId, clampInt(url.searchParams.get("windowHours"), 1, 720, 24));
+      const view = behaviorView(agentId, clampInt(url.searchParams.get("windowHours"), 1, 720, 24), clampInt(url.searchParams.get("sourceLimit"), 25, 5000, 100));
       const fullAgent = view.aggregate.agents.find(item => item.agentId === agentId) || { agentId, total: 0, path: [], atoms: {}, outOfOrganization: 0, outOfTask: 0 };
       const agent = trimBehaviorAgents([fullAgent], pathLimit)[0];
       const requestPath = (agent.path || []).filter(item => item.boundaryScope && item.boundaryScope !== "within");
@@ -435,7 +540,7 @@ function startApiServer({
       const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 160);
       const occurrenceLimit = clampInt(url.searchParams.get("occurrenceLimit"), 1, 1000, 200);
       const eventLimit = clampInt(url.searchParams.get("eventLimit"), 1, 1000, 200);
-      const view = behaviorView(agentId, windowHours);
+      const view = behaviorView(agentId, windowHours, clampInt(url.searchParams.get("sourceLimit"), 25, 5000, 100));
       const fullActualPath = agentId
         ? (view.aggregate.agents.find(item => String(item.agentId) === String(agentId))?.path || [])
         : view.aggregate.agents.flatMap(item => item.path || []).sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0));
@@ -784,7 +889,7 @@ function startApiServer({
   });
   server.listen(apiPort, "127.0.0.1", () => {
     addEvent("system", "info", "allow", `Agent API: http://127.0.0.1:${apiPort}`,
-      { authentication: localToken ? "token" : "development-open" });
+      { authentication: apiAuth.enabled ? "token-rbac" : "development-open" });
   });
   return server;
 }
@@ -793,6 +898,41 @@ function validToken(provided, expected) {
   const left = Buffer.from(String(provided || ""));
   const right = Buffer.from(String(expected || ""));
   return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function loadApiAuth(localToken) {
+  const tokens = new Map();
+  if (localToken) tokens.set(localToken, { role: "admin", scopes: ["read", "write", "admin"] });
+  if (process.env.AIDR_ADMIN_TOKEN) tokens.set(process.env.AIDR_ADMIN_TOKEN, { role: "admin", scopes: ["read", "write", "admin"] });
+  if (process.env.AIDR_READ_TOKEN) tokens.set(process.env.AIDR_READ_TOKEN, { role: "viewer", scopes: ["read"] });
+  if (process.env.AIDR_API_TOKENS) {
+    try {
+      const configured = JSON.parse(process.env.AIDR_API_TOKENS);
+      for (const [token, value] of Object.entries(configured || {})) {
+        if (!token) continue;
+        const role = typeof value === "string" ? value : value?.role || "viewer";
+        const scopes = Array.isArray(value?.scopes) ? value.scopes : (role === "admin" ? ["read", "write", "admin"] : ["read"]);
+        tokens.set(token, { role, scopes });
+      }
+    } catch (_) {}
+  }
+  return { enabled: tokens.size > 0, tokens };
+}
+
+function authorizeRequest(req, pathname, auth) {
+  if (!auth.enabled) return null;
+  const supplied = req.headers["x-aidr-token"] || String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const credential = Array.from(auth.tokens.keys()).find(token => validToken(supplied, token));
+  if (!credential) return { status: 401, error: "unauthorized" };
+  const principal = auth.tokens.get(credential);
+  const mutating = !["GET", "HEAD", "OPTIONS"].includes(String(req.method || "GET").toUpperCase());
+  if (mutating && !principal.scopes.includes("write") && !principal.scopes.includes("admin")) {
+    return { status: 403, error: "forbidden_scope" };
+  }
+  if (pathname === "/api/audit/export" && !principal.scopes.includes("read") && !principal.scopes.includes("admin")) {
+    return { status: 403, error: "forbidden_scope" };
+  }
+  return null;
 }
 
 function redactPolicy(policy) {
