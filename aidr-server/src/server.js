@@ -242,12 +242,13 @@ initDB().then(() => {
     return {
       version: "central-policy-v1",
       mode: "enforce",
+      policyBaseline: { id: "central-baseline", name: "AIDR Organization Baseline", version: "1.0.0", revision: 1, status: "active", scope: "all-agents" },
       policyRules: [
         { id: "secret-read-deny", name: "Sensitive credential read protection", description: "Block access to credentials and secrets.", enabled: true, priority: 10, action: "block", agentScope: ["*"], atomIds: ["AUTH.CREDENTIAL_DISCOVER", "DATA.CREDENTIAL_READ"], source: "baseline" },
         { id: "external-network-review", name: "External network approval", description: "Require approval for external connections and transfers.", enabled: true, priority: 20, action: "require_approval", agentScope: ["*"], atomIds: ["EXEC.HTTP_CONNECT", "EXEC.REMOTE_ACCESS_CONNECT", "DATA.DATA_TRANSFER"], source: "baseline" },
         { id: "workspace-read", name: "Workspace read", description: "Allow source code and document reads.", enabled: true, priority: 30, action: "allow", agentScope: ["*"], atomIds: ["DATA.SOURCE_CODE_READ", "DATA.DOCUMENT_READ", "DATA.FILE_READ"], source: "baseline" }
       ],
-      organizationBoundary: { maxLevel: 3, levels: {}, allowedAtoms: [], deniedAtoms: [], compiledAtoms: [] }
+      organizationBoundary: { maxLevel: 3, levels: {}, allowedAtoms: [], conditionalAtoms: [], deniedAtoms: [], compiledAtoms: [] }
     };
   }
 
@@ -255,26 +256,64 @@ initDB().then(() => {
     const policy = { ...defaultCentralPolicy(), ...input, organizationBoundary: { ...defaultCentralPolicy().organizationBoundary, ...(input.organizationBoundary || {}) } };
     const previous = new Set(policy.organizationBoundary.compiledAtoms || []);
     const allowed = new Set((policy.organizationBoundary.allowedAtoms || []).filter(id => !previous.has(id)));
+    const conditional = new Set((policy.organizationBoundary.conditionalAtoms || []).filter(id => !previous.has(id)));
     const denied = new Set((policy.organizationBoundary.deniedAtoms || []).filter(id => !previous.has(id)));
-    const compiled = new Set();
+    const normalizeAtoms = values => Array.from(new Set((values || []).map(id => String(id).trim().toUpperCase()).filter(Boolean)));
     policy.policyRules = (Array.isArray(policy.policyRules) ? policy.policyRules : []).map((rule, index) => ({
       ...rule,
       id: String(rule.id || `policy-${index + 1}`),
       enabled: rule.enabled !== false,
       priority: Number(rule.priority || (index + 1) * 100),
-      action: String(rule.action || "block").toLowerCase(),
       agentScope: Array.isArray(rule.agentScope) ? rule.agentScope : ["*"],
-      atomIds: Array.from(new Set((rule.atomIds || []).map(id => String(id).toUpperCase())))
+      authorization: (() => {
+        if (rule.authorization) return {
+          allow: normalizeAtoms(rule.authorization.allow || rule.authorization.allowedAtoms),
+          conditional: normalizeAtoms(rule.authorization.conditional || rule.authorization.approval || rule.authorization.requireApproval),
+          deny: normalizeAtoms(rule.authorization.deny || rule.authorization.deniedAtoms)
+        };
+        const atoms = normalizeAtoms(rule.atomIds);
+        const action = String(rule.action || "block").toLowerCase();
+        return action === "allow" ? { allow: atoms, conditional: [], deny: [] }
+          : action === "hold" || action === "require_approval" ? { allow: [], conditional: atoms, deny: [] }
+          : { allow: [], conditional: [], deny: atoms };
+      })()
     })).sort((a, b) => a.priority - b.priority);
-    for (const rule of policy.policyRules.slice().reverse()) {
+    const decisions = new Map();
+    for (const rule of policy.policyRules) {
       if (!rule.enabled) continue;
-      for (const id of rule.atomIds) {
-        compiled.add(id);
-        if (rule.action === "allow") { allowed.add(id); denied.delete(id); }
-        else { denied.add(id); allowed.delete(id); }
+      for (const state of ["allow", "conditional", "deny"]) {
+        for (const id of rule.authorization[state]) {
+          if (!decisions.has(id)) decisions.set(id, { state, ruleId: rule.id });
+        }
       }
     }
-    policy.organizationBoundary = { ...policy.organizationBoundary, allowedAtoms: Array.from(allowed).sort(), deniedAtoms: Array.from(denied).sort(), compiledAtoms: Array.from(compiled).sort(), source: "policy.policyRules.compiler" };
+    policy.policyRules = policy.policyRules.map(rule => {
+      const atomIds = normalizeAtoms([...rule.authorization.allow, ...rule.authorization.conditional, ...rule.authorization.deny]);
+      const groups = ["allow", "conditional", "deny"].filter(state => rule.authorization[state].length);
+      return { ...rule, action: groups.length === 1 ? (groups[0] === "conditional" ? "require_approval" : groups[0] === "deny" ? "block" : "allow") : "mixed", atomIds };
+    });
+    for (const [id, decision] of decisions) {
+      allowed.delete(id); conditional.delete(id); denied.delete(id);
+      if (decision.state === "allow") allowed.add(id);
+      else if (decision.state === "conditional") conditional.add(id);
+      else denied.add(id);
+    }
+    const domainStats = {};
+    for (const [id, decision] of decisions) {
+      const domain = id.split(".")[0] || "OTHER";
+      domainStats[domain] ||= { domain, allow: 0, conditional: 0, deny: 0, total: 0 };
+      domainStats[domain][decision.state] += 1;
+      domainStats[domain].total += 1;
+    }
+    const authorization = { allowedAtoms: Array.from(allowed).sort(), conditionalAtoms: Array.from(conditional).sort(), deniedAtoms: Array.from(denied).sort() };
+    policy.effectivePolicy = {
+      baseline: policy.policyBaseline,
+      authorization,
+      domainStats: Object.values(domainStats).sort((a, b) => a.domain.localeCompare(b.domain)),
+      ruleContributions: policy.policyRules.map(rule => ({ ruleId: rule.id, name: rule.name, priority: rule.priority, enabled: rule.enabled, allow: rule.authorization.allow.length, conditional: rule.authorization.conditional.length, deny: rule.authorization.deny.length, atoms: rule.authorization })),
+      source: "policy.policyRules.compiler"
+    };
+    policy.organizationBoundary = { ...policy.organizationBoundary, ...authorization, compiledAtoms: Array.from(decisions.keys()).sort(), source: "policy.policyRules.compiler" };
     return policy;
   }
 
@@ -492,13 +531,14 @@ initDB().then(() => {
       else if (pathname === "/console/api/behavior-atoms" && req.method === "GET") {
         const policy = activeCentralPolicy();
         const allowed = new Set(policy.organizationBoundary.allowedAtoms || []);
+        const conditional = new Set(policy.organizationBoundary.conditionalAtoms || []);
         const denied = new Set(policy.organizationBoundary.deniedAtoms || []);
         const atomIds = Array.from(new Set((policy.policyRules || []).flatMap(rule => rule.atomIds || []))).sort();
         result = {
           catalog: atomIds.map(id => {
             const domain = id.split(".")[0];
-            const enabled = allowed.has(id) && !denied.has(id);
-            return { id, domain, description: id, baseLevel: /CREDENTIAL|TRANSFER|REMOTE|PRIVILEGE/.test(id) ? 4 : /CONNECT|WRITE|EXECUTE/.test(id) ? 3 : 1, enabled, policyAllowed: enabled, organizationBoundary: { scope: enabled ? "within" : "organization", reason: denied.has(id) ? "atom_denied_by_policy" : "within", source: policy.organizationBoundary.source } };
+            const scope = denied.has(id) ? "organization" : conditional.has(id) ? "conditional" : "within";
+            return { id, domain, description: id, baseLevel: /CREDENTIAL|TRANSFER|REMOTE|PRIVILEGE/.test(id) ? 4 : /CONNECT|WRITE|EXECUTE/.test(id) ? 3 : 1, enabled: scope !== "organization", policyAllowed: scope === "within", authorizationState: scope === "within" ? "allow" : scope === "conditional" ? "conditional" : "deny", organizationBoundary: { scope, reason: denied.has(id) ? "atom_denied_by_policy" : conditional.has(id) ? "atom_requires_approval" : "within", source: policy.organizationBoundary.source } };
           }),
           agents: [], stats: [], occurrences: [], boundary: policy.organizationBoundary,
           mappingQuality: { status: "central_policy_catalog" }
@@ -509,7 +549,7 @@ initDB().then(() => {
         const enabled = body?.enabled !== false;
         const policy = activeCentralPolicy();
         const ruleId = `atom-authorization:${id}`;
-        const rule = { id: ruleId, name: `${id} authorization`, description: enabled ? "Administrator allows this behavior atom." : "Administrator denies this behavior atom.", enabled: true, priority: 10, action: enabled ? "allow" : "block", agentScope: ["*"], atomIds: [id], source: "behavior-atom-grid" };
+        const rule = { id: ruleId, name: `${id} authorization`, description: enabled ? "Administrator allows this behavior atom." : "Administrator denies this behavior atom.", enabled: true, priority: 10, authorization: { allow: enabled ? [id] : [], conditional: [], deny: enabled ? [] : [id] }, agentScope: ["*"], atomIds: [id], source: "behavior-atom-grid" };
         const rules = (policy.policyRules || []).filter(item => item.id !== ruleId);
         rules.push(rule);
         const updated = saveCentralPolicy({ ...policy, policyRules: rules });

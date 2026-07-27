@@ -4,13 +4,16 @@ const { compilePolicyRules, upsertAtomAuthorizationRule } = require("../src/engi
 let policy = {
   organizationBoundary: { allowedAtoms: ["DATA.FILE_READ"], deniedAtoms: ["AUTH.CREDENTIAL_READ"] },
   policyRules: [
-    { id: "read", action: "allow", atomIds: ["DATA.SOURCE_CODE_READ"], priority: 20 },
+    { id: "read", authorization: { allow: ["DATA.SOURCE_CODE_READ"], conditional: ["EXEC.HTTP_CONNECT"], deny: ["EXEC.SERVICE_CONTROL"] }, priority: 20 },
     { id: "secret", action: "block", atomIds: ["DATA.CREDENTIAL_READ"], priority: 10 }
   ]
 };
 let compiled = compilePolicyRules(policy);
 assert(compiled.organizationBoundary.allowedAtoms.includes("DATA.SOURCE_CODE_READ"));
 assert(compiled.organizationBoundary.deniedAtoms.includes("DATA.CREDENTIAL_READ"));
+assert(compiled.organizationBoundary.conditionalAtoms.includes("EXEC.HTTP_CONNECT"));
+assert.strictEqual(compiled.effectivePolicy.authorization.conditionalAtoms.length, 1);
+assert.strictEqual(compiled.policyRules.find(rule => rule.id === "read").action, "mixed");
 assert.strictEqual(compiled.policyRules[0].id, "secret");
 policy = { ...policy, ...compiled };
 compiled = upsertAtomAuthorizationRule(policy, "DATA.SOURCE_CODE_READ", false);

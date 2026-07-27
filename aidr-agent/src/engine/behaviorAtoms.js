@@ -374,6 +374,7 @@ function getOrganizationBoundary(policy = {}) {
     maxLevel,
     levels,
     allowedAtoms: Array.from(new Set(configured.allowedAtoms || [])).map(canonicalAtomId),
+    conditionalAtoms: Array.from(new Set(configured.conditionalAtoms || [])).map(canonicalAtomId),
     deniedAtoms: Array.from(new Set(configured.deniedAtoms || [])).map(canonicalAtomId),
     allowedDomains: configured.allowedDomains || session.allowedDomains || ["localhost", "127.0.0.1"],
     deniedPaths: configured.deniedPaths || session.deniedPaths || [],
@@ -390,20 +391,23 @@ function classifyOrganizationAtom(atom = {}, organization = {}) {
   const requiredLevel = Math.max(0, Math.min(5, Number(atom.baseLevel || 0)));
   const allowedLevel = Math.max(0, Math.min(5, Number(organization.levels?.[domain] ?? organization.maxLevel ?? 3)));
   const allowedByAtom = (organization.allowedAtoms || []).some(item => canonicalAtomId(item) === id);
+  const conditionalByAtom = (organization.conditionalAtoms || []).some(item => canonicalAtomId(item) === id);
   const deniedByAtom = (organization.deniedAtoms || []).some(item => canonicalAtomId(item) === id);
   const disabled = atom.enabled === false;
   let reason = "within";
   if (disabled) reason = "atom_disabled";
   else if (deniedByAtom) reason = "atom_denied_by_policy";
+  else if (conditionalByAtom) reason = "atom_requires_approval";
   else if (!allowedByAtom && requiredLevel > allowedLevel) reason = "level_exceeds_organization";
   return {
-    scope: reason === "within" ? "within" : "organization",
+    scope: reason === "within" ? "within" : reason === "atom_requires_approval" ? "conditional" : "organization",
     reason,
     atomId: id,
     domain,
     enabled: !disabled,
     policyAllowed: reason === "within",
     explicitlyAllowed: allowedByAtom,
+    conditionallyAllowed: conditionalByAtom,
     requiredLevel,
     allowedLevel,
     version: organization.version || "org-boundary-v1",
@@ -475,6 +479,7 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
   const externalTarget = Boolean(detail.external || /https?:\/\//i.test(destination) || /external|unknown-model|attacker/i.test(destination));
   const disabledAtom = atom.enabled === false;
   const allowedByAtom = org.allowedAtoms.some(item => canonicalAtomId(item) === atom.id);
+  const conditionalByAtom = org.conditionalAtoms.some(item => canonicalAtomId(item) === atom.id);
   const deniedByAtom = org.deniedAtoms.some(item => canonicalAtomId(item) === atom.id);
   const deniedPath = org.deniedPaths.some(pattern => String(resource).toLowerCase().includes(String(pattern).replace(/\*/g, "").toLowerCase()));
   const threatAdjustment = String(event.mappingRule || "").startsWith("threat.") ? 2 : 0;
@@ -488,7 +493,7 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
   const taskLevelExceeded = requiredLevel > taskAllowedLevel;
   const orgExceeded = disabledAtom || deniedByAtom || deniedPath || orgLevelExceeded || (externalTarget && !org.allowedDomains.some(domain => matchesDomain(domain, destination)));
   const taskExceeded = !orgExceeded && (taskLevelExceeded || taskDeniedPath || taskDomainDenied);
-  const scope = orgExceeded ? "organization" : taskExceeded ? "task" : "within";
+  const scope = orgExceeded ? "organization" : taskExceeded ? "task" : conditionalByAtom ? "conditional" : "within";
   return {
     scope,
     requiredLevel,
@@ -496,10 +501,10 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
     organizationBoundaryVersion: org.version,
     organizationReason: disabledAtom ? "atom_disabled" : deniedByAtom ? "atom_denied_by_policy" : deniedPath ? "path_denied_by_policy" : orgLevelExceeded ? "level_exceeds_organization" : (externalTarget && !org.allowedDomains.some(domain => matchesDomain(domain, destination))) ? "domain_outside_organization" : "within",
     taskBoundarySource: task.source,
-    color: orgExceeded ? "red" : taskExceeded ? "amber" : "teal",
+    color: orgExceeded ? "red" : taskExceeded || conditionalByAtom ? "amber" : "teal",
     externalTarget,
     layers: {
-      organization: { maxLevel: orgAllowedLevel, denied: orgExceeded, reason: disabledAtom ? "atom_disabled" : deniedByAtom ? "atom_denied_by_policy" : deniedPath ? "path_denied_by_policy" : orgLevelExceeded ? "level_exceeds_organization" : (externalTarget && !org.allowedDomains.some(domain => matchesDomain(domain, destination))) ? "domain_outside_organization" : "within", version: org.version },
+      organization: { maxLevel: orgAllowedLevel, denied: orgExceeded, conditional: conditionalByAtom, reason: disabledAtom ? "atom_disabled" : deniedByAtom ? "atom_denied_by_policy" : conditionalByAtom ? "atom_requires_approval" : deniedPath ? "path_denied_by_policy" : orgLevelExceeded ? "level_exceeds_organization" : (externalTarget && !org.allowedDomains.some(domain => matchesDomain(domain, destination))) ? "domain_outside_organization" : "within", version: org.version },
       task: { maxLevel: taskAllowedLevel, denied: taskExceeded, source: task.source },
       runtime: { externalTarget, resource }
     }

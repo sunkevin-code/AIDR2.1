@@ -39,7 +39,7 @@
       style.textContent += ".abg-orbit-box .abg-boundary{stroke-width:3;stroke-dasharray:10 5}.abg-orbit-box .abg-task-boundary{stroke-width:3.4;stroke-dasharray:3 3}.abg-boundary-halo{fill:none;stroke:rgba(255,255,255,.92);stroke-width:7;pointer-events:none}.abg-boundary-key rect{fill:rgba(255,255,255,.94);stroke:#c9d8de;stroke-width:1}.abg-boundary-key text{font-size:9px;font-weight:700;fill:#33495e}.abg-boundary-key .organization{stroke:#e65da4;stroke-width:3;stroke-dasharray:10 5}.abg-boundary-key .task{stroke:#ff8a1e;stroke-width:3.4;stroke-dasharray:3 3}";
       style.textContent += ".abg-exclusion-boundary{fill:rgba(180,35,24,.08);stroke:#b42318;stroke-width:1.8;stroke-dasharray:3 2;pointer-events:none}.abg-exclusion-label{fill:#b42318;font-size:8px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px;pointer-events:none}";
       style.textContent += ".behavior-ops{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px;margin-top:12px}.behavior-funnel,.behavior-quality{border:1px solid #d8e5e8;border-radius:7px;background:#fff;padding:13px}.behavior-ops-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.behavior-ops-head h3{font-size:13px;margin:0}.behavior-funnel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.behavior-stage{position:relative;border:1px solid #dce7eb;border-radius:6px;padding:9px;background:#f9fbfc}.behavior-stage small,.quality-item small{display:block;color:#687587;font-size:10px}.behavior-stage b{display:block;margin-top:4px;font-size:18px;color:#173045}.behavior-stage.block b{color:#b42318}.behavior-stage.alert b{color:#a35b00}.quality-list{display:grid;gap:7px}.quality-item{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #edf2f4;padding-bottom:7px}.quality-item:last-child{border-bottom:0;padding-bottom:0}.quality-item b{font-size:11px}.event-row{cursor:pointer}.event-row.selected{background:#eef8f6;box-shadow:inset 3px 0 #147f73}.behavior-evidence{margin-top:10px;border:1px solid #cde2e6;border-radius:6px;background:#f8fbfc;padding:11px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.behavior-evidence[hidden]{display:none}.behavior-evidence small{display:block;color:#687587;font-size:10px;margin-bottom:3px}.behavior-evidence b{display:block;overflow-wrap:anywhere;font-size:11px}@media(max-width:980px){.behavior-ops{grid-template-columns:1fr}.behavior-funnel-grid,.behavior-evidence{grid-template-columns:repeat(2,minmax(0,1fr))}}";
-      style.textContent += ".policy-rule-actions{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap}.policy-rule-actions .btn{padding:5px 8px}.policy-rule-editor{border-top:1px solid #e4eaee;background:#fbfdfd}.policy-rule-editor-actions{display:flex;align-items:center;gap:8px;margin-top:10px}.policy-row{grid-template-columns:minmax(240px,2fr) 120px 130px 130px minmax(180px,auto)!important}.policy-row .policy-sub{margin-bottom:4px}@media(max-width:1100px){.policy-row{grid-template-columns:1fr 110px!important}.policy-rule-actions{grid-column:1/-1;justify-content:flex-start}}";
+      style.textContent += ".policy-rule-actions{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap}.policy-rule-actions .btn{padding:5px 8px}.policy-rule-editor{border-top:1px solid #e4eaee;background:#fbfdfd}.policy-rule-editor-actions{display:flex;align-items:center;gap:8px;margin-top:10px}.policy-row{grid-template-columns:minmax(220px,.9fr) minmax(360px,1.5fr) 78px auto!important}.policy-row .policy-sub{margin-bottom:4px}.policy-baseline-summary{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:10px}.policy-rule-groups{display:grid;gap:6px;min-width:0}.policy-rule-groups>div{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}.policy-rule-groups .badge{max-width:190px;overflow:hidden;text-overflow:ellipsis}.policy-domain-table{margin-top:14px}@media(max-width:1100px){.policy-row{grid-template-columns:1fr 110px!important}.policy-rule-groups,.policy-rule-actions{grid-column:1/-1}.policy-rule-actions{justify-content:flex-start}.policy-baseline-summary{grid-template-columns:repeat(3,minmax(110px,1fr))}}";
       document.head.appendChild(style);
     }
     if (!document.getElementById("aidr-abg-boundary-style")) {
@@ -634,10 +634,11 @@
     var requiredLevel = Number(value.baseLevel ?? value.requiredLevel ?? value.level ?? 0);
     var allowedLevel = Number(org.levels?.[domain] ?? org.maxLevel ?? 3);
     var explicitlyAllowed = (org.allowedAtoms || []).some(function (item) { return String(item).toUpperCase() === id; });
+    var conditional = (org.conditionalAtoms || []).some(function (item) { return String(item).toUpperCase() === id; });
     var denied = (org.deniedAtoms || []).some(function (item) { return String(item).toUpperCase() === id; });
     var disabled = value.enabled === false;
-    var reason = disabled ? "atom_disabled" : denied ? "atom_denied_by_policy" : !explicitlyAllowed && requiredLevel > allowedLevel ? "level_exceeds_organization" : "within";
-    return { scope: reason === "within" ? "within" : "organization", reason: reason, policyAllowed: reason === "within", explicitlyAllowed: explicitlyAllowed, requiredLevel: requiredLevel, allowedLevel: allowedLevel, version: org.version, source: org.source };
+    var reason = disabled ? "atom_disabled" : denied ? "atom_denied_by_policy" : conditional ? "atom_requires_approval" : !explicitlyAllowed && requiredLevel > allowedLevel ? "level_exceeds_organization" : "within";
+    return { scope: reason === "within" ? "within" : reason === "atom_requires_approval" ? "conditional" : "organization", reason: reason, policyAllowed: reason === "within", conditionallyAllowed: conditional, explicitlyAllowed: explicitlyAllowed, requiredLevel: requiredLevel, allowedLevel: allowedLevel, version: org.version, source: org.source };
   }
 
   function abgBoundaryReasonLabel(reason) {
@@ -645,6 +646,7 @@
       within: "\u7ec4\u7ec7\u8fb9\u754c\u5185",
       atom_disabled: "\u7b56\u7565\u4e0d\u5141\u8bb8",
       atom_denied_by_policy: "\u7b56\u7565\u660e\u786e\u4e0d\u5141\u8bb8",
+      atom_requires_approval: "\u9700\u8981\u4eba\u5de5\u5ba1\u6279",
       level_exceeds_organization: "\u6240\u9700\u6743\u9650\u8d85\u8fc7\u7ec4\u7ec7\u4e0a\u9650"
     }[reason] || reason || "\u672a\u77e5";
   }
@@ -1436,7 +1438,7 @@
     renderAbgBehavior();
   }
 
-  function renderPolicyRules() {
+  function renderPolicyRulesLegacy() {
     var panel = document.querySelector("#page-policy .policy-layout > .panel:first-child");
     if (!panel) return;
     var rules = Array.isArray(state.policy && state.policy.policyRules) ? state.policy.policyRules.slice() : [];
@@ -1474,6 +1476,100 @@
       var found = false; var nextRules = rules.map(function (rule) { if (rule.id === id) { found = true; return next; } return rule; });
       if (!found) nextRules.push(next);
       persist(nextRules, "策略已保存，权限边界已刷新");
+    });
+  }
+
+  function renderPolicyRules() {
+    var panel = document.querySelector("#page-policy .policy-layout > .panel:first-child");
+    if (!panel) return;
+    var policy = state.policy || {};
+    var baseline = policy.policyBaseline || policy.effectivePolicy && policy.effectivePolicy.baseline || {};
+    var effective = policy.effectivePolicy || {};
+    var authorization = effective.authorization || {
+      allowedAtoms: policy.organizationBoundary && policy.organizationBoundary.allowedAtoms || [],
+      conditionalAtoms: policy.organizationBoundary && policy.organizationBoundary.conditionalAtoms || [],
+      deniedAtoms: policy.organizationBoundary && policy.organizationBoundary.deniedAtoms || []
+    };
+    var rules = Array.isArray(policy.policyRules) ? policy.policyRules.slice() : [];
+    rules.sort(function (a, b) { return Number(a.priority || 0) - Number(b.priority || 0); });
+    function groups(rule) {
+      var configured = rule.authorization || {};
+      if (configured.allow || configured.conditional || configured.deny) return {
+        allow: configured.allow || [],
+        conditional: configured.conditional || [],
+        deny: configured.deny || []
+      };
+      var atoms = rule.atomIds || [];
+      var action = String(rule.action || "block").toLowerCase();
+      return action === "allow" ? { allow: atoms, conditional: [], deny: [] }
+        : action === "hold" || action === "require_approval" ? { allow: [], conditional: atoms, deny: [] }
+        : { allow: [], conditional: [], deny: atoms };
+    }
+    function atomChips(values, className) {
+      return (values || []).map(function (id) { return '<span class="badge ' + className + '">' + escapeHtml(id) + '</span>'; }).join(" ");
+    }
+    var domainRows = (effective.domainStats || []).map(function (item) {
+      return '<tr><td><b>' + escapeHtml(item.domain) + '</b></td><td>' + escapeHtml(item.allow) + '</td><td>' + escapeHtml(item.conditional) + '</td><td>' + escapeHtml(item.deny) + '</td><td>' + escapeHtml(item.total) + '</td></tr>';
+    }).join("");
+    var rows = rules.map(function (rule) {
+      var auth = groups(rule);
+      return '<div class="policy-row" data-policy-rule="' + escapeHtml(rule.id) + '"><div><div class="policy-name">' + escapeHtml(rule.name || rule.id) + '</div><div class="policy-sub">' + escapeHtml(rule.description || "未填写说明") + '</div><div class="small muted">作用域 ' + escapeHtml((rule.agentScope || ["*"]).join(", ")) + ' · P' + escapeHtml(rule.priority || 0) + '</div></div><div class="policy-rule-groups"><div><b>允许 ' + auth.allow.length + '</b> ' + atomChips(auth.allow, "allow") + '</div><div><b>需审批 ' + auth.conditional.length + '</b> ' + atomChips(auth.conditional, "hold") + '</div><div><b>不允许 ' + auth.deny.length + '</b> ' + atomChips(auth.deny, "block") + '</div></div><div>' + badge(rule.enabled === false ? "已停用" : "生效", rule.enabled === false ? "neutral" : "allow") + '</div><div class="policy-rule-actions"><button class="btn" data-policy-edit="' + escapeHtml(rule.id) + '">编辑</button><button class="btn" data-policy-toggle="' + escapeHtml(rule.id) + '">' + (rule.enabled === false ? "启用" : "停用") + '</button><button class="btn danger" data-policy-delete="' + escapeHtml(rule.id) + '">删除</button></div></div>';
+    }).join("");
+    panel.innerHTML =
+      '<div class="panel-head"><div><h2>组织策略 Baseline</h2><p>一个 Baseline 包含多条规则；每条规则分别定义允许、需审批和不允许的行为原子。</p></div><button class="btn primary" id="policyRuleNew">新建规则</button></div>' +
+      '<div class="panel-body"><div class="policy-baseline-summary">' +
+        '<div><small>Baseline</small><strong>' + escapeHtml(baseline.name || "AIDR Organization Baseline") + '</strong><span>' + escapeHtml(baseline.id || "default-baseline") + '</span></div>' +
+        '<div><small>版本 / Revision</small><strong>' + escapeHtml(baseline.version || policy.version || "-") + '</strong><span>R' + escapeHtml(baseline.revision || 0) + '</span></div>' +
+        '<div><small>规则</small><strong>' + rules.length + '</strong><span>' + rules.filter(function (r) { return r.enabled !== false; }).length + ' 条生效</span></div>' +
+        '<div><small>允许</small><strong class="text-allow">' + authorization.allowedAtoms.length + '</strong><span>直接放行</span></div>' +
+        '<div><small>需审批</small><strong class="text-hold">' + authorization.conditionalAtoms.length + '</strong><span>审批后放行</span></div>' +
+        '<div><small>不允许</small><strong class="text-block">' + authorization.deniedAtoms.length + '</strong><span>强制阻断</span></div>' +
+      '</div><table class="table policy-domain-table"><thead><tr><th>行为域</th><th>允许</th><th>需审批</th><th>不允许</th><th>合计</th></tr></thead><tbody>' + (domainRows || '<tr><td colspan="5">尚无已编译规则</td></tr>') + '</tbody></table></div>' +
+      '<div class="panel-head policy-rule-list-head"><div><h2>规则列表</h2><p>优先级数值越小越先决；同一行为原子采用首个生效规则的决策。</p></div><span class="badge neutral">' + escapeHtml(effective.source || "policy.policyRules.compiler") + '</span></div>' +
+      '<div id="policyRuleRows">' + (rows || '<div class="empty">暂无规则，请新建第一条权限规则。</div>') + '</div>' +
+      '<div class="panel-body policy-rule-editor" id="policyRuleEditor"><input type="hidden" id="policyRuleId"><div class="form-grid">' +
+        '<div class="field"><label>规则名称</label><input class="input" id="policyRuleName"></div><div class="field"><label>优先级</label><input class="input" type="number" id="policyRulePriority" value="100"></div>' +
+        '<div class="field"><label>Agent 作用域</label><input class="input" id="policyRuleScope" value="*" placeholder="* 或 codex,opencode"></div><div class="field"><label>说明</label><input class="input" id="policyRuleDescription"></div>' +
+        '<div class="field full"><label>允许的行为原子</label><textarea class="textarea" id="policyRuleAllow" placeholder="DATA.SOURCE_CODE_READ, DATA.DOCUMENT_READ"></textarea></div>' +
+        '<div class="field full"><label>需要审批的行为原子</label><textarea class="textarea" id="policyRuleConditional" placeholder="EXEC.HTTP_CONNECT, TOOL.MCP_CONNECT"></textarea></div>' +
+        '<div class="field full"><label>不允许的行为原子</label><textarea class="textarea" id="policyRuleDeny" placeholder="DATA.CREDENTIAL_READ, EXEC.SERVICE_CONTROL"></textarea></div>' +
+      '</div><div class="policy-rule-editor-actions"><button class="btn primary" id="policyRuleSave">保存并编译</button><button class="btn" id="policyRuleCancel">清空</button><span class="small muted" id="policyRuleStatus">保存后将刷新有效策略与组织权限边界。</span></div></div>';
+    function values(id) {
+      return panel.querySelector(id).value.split(/[,\n]/).map(function (value) { return value.trim().toUpperCase(); }).filter(Boolean);
+    }
+    function fill(rule) {
+      var auth = groups(rule || {});
+      panel.querySelector("#policyRuleId").value = rule && rule.id || "";
+      panel.querySelector("#policyRuleName").value = rule && rule.name || "";
+      panel.querySelector("#policyRulePriority").value = rule && rule.priority || 100;
+      panel.querySelector("#policyRuleScope").value = rule && (rule.agentScope || ["*"]).join(",") || "*";
+      panel.querySelector("#policyRuleDescription").value = rule && rule.description || "";
+      panel.querySelector("#policyRuleAllow").value = auth.allow.join(", ");
+      panel.querySelector("#policyRuleConditional").value = auth.conditional.join(", ");
+      panel.querySelector("#policyRuleDeny").value = auth.deny.join(", ");
+    }
+    function persist(nextRules, message) {
+      var status = panel.querySelector("#policyRuleStatus");
+      status.textContent = "正在编译并应用策略...";
+      api("/api/policy", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ policyRules: nextRules }) })
+        .then(function () { status.textContent = message; return refresh(); })
+        .catch(function (error) { status.textContent = "保存失败：" + (error.message || "API unavailable"); });
+    }
+    panel.querySelector("#policyRuleNew").addEventListener("click", function () { fill(null); panel.querySelector("#policyRuleName").focus(); });
+    panel.querySelector("#policyRuleCancel").addEventListener("click", function () { fill(null); });
+    panel.querySelectorAll("[data-policy-edit]").forEach(function (button) { button.addEventListener("click", function () { fill(rules.find(function (rule) { return rule.id === button.dataset.policyEdit; })); }); });
+    panel.querySelectorAll("[data-policy-toggle]").forEach(function (button) { button.addEventListener("click", function () { var id = button.dataset.policyToggle; persist(rules.map(function (rule) { return rule.id === id ? Object.assign({}, rule, { enabled: rule.enabled === false }) : rule; }), "规则状态已更新"); }); });
+    panel.querySelectorAll("[data-policy-delete]").forEach(function (button) { button.addEventListener("click", function () { var id = button.dataset.policyDelete; persist(rules.filter(function (rule) { return rule.id !== id; }), "规则已删除"); }); });
+    panel.querySelector("#policyRuleSave").addEventListener("click", function () {
+      var id = panel.querySelector("#policyRuleId").value.trim() || "policy-" + Date.now();
+      var name = panel.querySelector("#policyRuleName").value.trim();
+      if (!name) { panel.querySelector("#policyRuleStatus").textContent = "请输入规则名称"; return; }
+      var authorization = { allow: values("#policyRuleAllow"), conditional: values("#policyRuleConditional"), deny: values("#policyRuleDeny") };
+      var next = { id: id, name: name, priority: Number(panel.querySelector("#policyRulePriority").value || 100), agentScope: panel.querySelector("#policyRuleScope").value.split(",").map(function (value) { return value.trim(); }).filter(Boolean), description: panel.querySelector("#policyRuleDescription").value.trim(), authorization: authorization, atomIds: authorization.allow.concat(authorization.conditional, authorization.deny), enabled: true, source: "administrator" };
+      var found = false;
+      var nextRules = rules.map(function (rule) { if (rule.id === id) { found = true; return next; } return rule; });
+      if (!found) nextRules.push(next);
+      persist(nextRules, "规则已保存，有效策略与组织权限边界已刷新");
     });
   }
 

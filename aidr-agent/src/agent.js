@@ -119,6 +119,27 @@ class AIDRAgent {
         this.policyVerification = { ...this.policyVerification, agentPolicyMigrationError: error.message };
       }
     }
+    const compiledPolicy = compilePolicyRules(this.policy);
+    const currentPolicyShape = JSON.stringify({
+      policyBaseline: this.policy.policyBaseline,
+      policyRules: this.policy.policyRules,
+      effectivePolicy: this.policy.effectivePolicy,
+      organizationBoundary: this.policy.organizationBoundary
+    });
+    const compiledPolicyShape = JSON.stringify({
+      policyBaseline: compiledPolicy.policyBaseline,
+      policyRules: compiledPolicy.policyRules,
+      effectivePolicy: compiledPolicy.effectivePolicy,
+      organizationBoundary: compiledPolicy.organizationBoundary
+    });
+    if (currentPolicyShape !== compiledPolicyShape) {
+      try {
+        this.policy = this.policyStore.save({ ...this.policy, ...compiledPolicy }, { signer: "aidr-policy-baseline-v2" });
+        this.policyVerification = this.policyStore.verifyActive();
+      } catch (error) {
+        this.policyVerification = { ...this.policyVerification, policyCompilationError: error.message };
+      }
+    }
     this.logger = new Logger(LOG_DIR, this.policy.agentId || "agent-" + Date.now().toString(36));
     this.auditLedger = new AuditLedger(LOG_DIR);
     this.semanticFeedback = new SemanticFeedbackStore(LOG_DIR);
@@ -534,7 +555,7 @@ class AIDRAgent {
         candidate.behaviorAtoms.disabled = patch.behaviorAtoms.disabled;
       }
     }
-    const signed = this.policyStore.save(candidate);
+    const signed = this.policyStore.save({ ...candidate, ...compilePolicyRules(candidate) });
     Object.keys(this.policy).forEach(key => delete this.policy[key]);
     Object.assign(this.policy, signed);
     this.policyVerification = this.policyStore.verifyActive();

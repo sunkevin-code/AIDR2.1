@@ -393,8 +393,9 @@ function startApiServer({
         const organizationBoundary = classifyOrganizationAtom(atom, boundary);
         return {
           ...atom,
-          enabled: organizationBoundary.scope === "within",
+          enabled: organizationBoundary.scope !== "organization",
           policyAllowed: organizationBoundary.scope === "within",
+          authorizationState: organizationBoundary.scope === "within" ? "allow" : organizationBoundary.scope === "conditional" ? "conditional" : "deny",
           stats: statsById.get(atom.id) || { atomId: atom.id, hits: 0, allow: 0, alert: 0, block: 0, agents: [], sessions: [], outOfOrganization: 0, outOfTask: 0 },
           organizationBoundary
         };
