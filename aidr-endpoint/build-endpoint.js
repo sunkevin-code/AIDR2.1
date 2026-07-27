@@ -67,7 +67,7 @@ try {
     encoding: "utf8",
     windowsHide: true
   }).trim();
-  gitDirty = childProcess.execFileSync("git", ["status", "--porcelain"], {
+  gitDirty = childProcess.execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
     cwd: path.join(root, ".."),
     encoding: "utf8",
     windowsHide: true
