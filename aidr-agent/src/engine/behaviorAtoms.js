@@ -395,9 +395,10 @@ function classifyOrganizationAtom(atom = {}, organization = {}) {
   const deniedByAtom = (organization.deniedAtoms || []).some(item => canonicalAtomId(item) === id);
   const disabled = atom.enabled === false;
   let reason = "within";
-  if (disabled) reason = "atom_disabled";
-  else if (deniedByAtom) reason = "atom_denied_by_policy";
+  if (deniedByAtom) reason = "atom_denied_by_policy";
   else if (conditionalByAtom) reason = "atom_requires_approval";
+  else if (allowedByAtom) reason = "within";
+  else if (disabled) reason = "atom_disabled";
   else if (!allowedByAtom && requiredLevel > allowedLevel) reason = "level_exceeds_organization";
   return {
     scope: reason === "within" ? "within" : reason === "atom_requires_approval" ? "conditional" : "organization",
@@ -477,10 +478,10 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
   const resource = String(detail.path || detail.file_path || toolInput.path || toolInput.file_path || detail.target || event.object || event.resource || "");
   const destination = String(detail.destination || detail.url || detail.host || toolInput.url || toolInput.host || toolInput.domain || "");
   const externalTarget = Boolean(detail.external || /https?:\/\//i.test(destination) || /external|unknown-model|attacker/i.test(destination));
-  const disabledAtom = atom.enabled === false;
   const allowedByAtom = org.allowedAtoms.some(item => canonicalAtomId(item) === atom.id);
   const conditionalByAtom = org.conditionalAtoms.some(item => canonicalAtomId(item) === atom.id);
   const deniedByAtom = org.deniedAtoms.some(item => canonicalAtomId(item) === atom.id);
+  const disabledAtom = atom.enabled === false && !allowedByAtom && !conditionalByAtom && !deniedByAtom;
   const deniedPath = org.deniedPaths.some(pattern => String(resource).toLowerCase().includes(String(pattern).replace(/\*/g, "").toLowerCase()));
   const threatAdjustment = String(event.mappingRule || "").startsWith("threat.") ? 2 : 0;
   const requiredLevel = Math.min(5, Number(atom.baseLevel || 0) + threatAdjustment + (atom.highRisk ? 0 : 0));

@@ -27,6 +27,9 @@
       task: {
         levels: Object.assign({}, task.levels || task.domainLevels || {}),
         maxLevel: finiteLevel(task.maxLevel, organization.maxLevel == null ? 3 : organization.maxLevel),
+        allowedAtoms: (task.allowedAtoms || []).map(function (id) { return String(id).toUpperCase(); }),
+        conditionalAtoms: (task.conditionalAtoms || []).map(function (id) { return String(id).toUpperCase(); }),
+        deniedAtoms: (task.deniedAtoms || []).map(function (id) { return String(id).toUpperCase(); }),
         version: task.version || null,
         source: task.source || "session.taskBoundary"
       }

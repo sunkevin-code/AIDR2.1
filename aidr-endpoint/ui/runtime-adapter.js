@@ -672,7 +672,7 @@
     var conditional = (org.conditionalAtoms || []).some(function (item) { return String(item).toUpperCase() === id; });
     var denied = (org.deniedAtoms || []).some(function (item) { return String(item).toUpperCase() === id; });
     var disabled = value.enabled === false;
-    var reason = disabled ? "atom_disabled" : denied ? "atom_denied_by_policy" : conditional ? "atom_requires_approval" : !explicitlyAllowed && requiredLevel > allowedLevel ? "level_exceeds_organization" : "within";
+    var reason = denied ? "atom_denied_by_policy" : conditional ? "atom_requires_approval" : explicitlyAllowed ? "within" : disabled ? "atom_disabled" : requiredLevel > allowedLevel ? "level_exceeds_organization" : "atom_denied_by_default";
     return { scope: reason === "within" ? "within" : reason === "atom_requires_approval" ? "conditional" : "organization", reason: reason, policyAllowed: reason === "within", conditionallyAllowed: conditional, explicitlyAllowed: explicitlyAllowed, requiredLevel: requiredLevel, allowedLevel: allowedLevel, version: org.version, source: org.source };
   }
 
@@ -682,6 +682,7 @@
       atom_disabled: "\u7b56\u7565\u4e0d\u5141\u8bb8",
       atom_denied_by_policy: "\u7b56\u7565\u660e\u786e\u4e0d\u5141\u8bb8",
       atom_requires_approval: "\u9700\u8981\u4eba\u5de5\u5ba1\u6279",
+      atom_denied_by_default: "\u672a\u58f0\u660e\u6743\u9650\uff0c\u9ed8\u8ba4\u4e0d\u5141\u8bb8",
       level_exceeds_organization: "\u6240\u9700\u6743\u9650\u8d85\u8fc7\u7ec4\u7ec7\u4e0a\u9650"
     }[reason] || reason || "\u672a\u77e5";
   }
@@ -1271,6 +1272,17 @@
     });
     var latticeToolbar = panel.querySelector(".abg-lattice-toolbar");
     if (latticeToolbar && !latticeToolbar.querySelector('[data-abg-lattice-filter="disabled"]')) {
+      var conditionalFilter = document.createElement("button");
+      conditionalFilter.type = "button";
+      conditionalFilter.className = "choice";
+      conditionalFilter.setAttribute("data-abg-lattice-filter", "conditional");
+      conditionalFilter.textContent = "需审批";
+      latticeToolbar.insertBefore(conditionalFilter, latticeToolbar.querySelector("input"));
+      conditionalFilter.addEventListener("click", function () {
+        panel.setAttribute("data-abg-lattice-filter", "conditional");
+        panel.querySelectorAll("[data-abg-lattice-filter]").forEach(function (item) { item.classList.toggle("active", item === conditionalFilter); });
+        renderPolicyAbg();
+      });
       var disabledFilter = document.createElement("button");
       disabledFilter.type = "button";
       disabledFilter.className = "choice";
@@ -1299,7 +1311,8 @@
       var stats = atom.stats || {};
        var organizationState = abgOrganizationAtomState(atom, boundary);
        var outside = organizationState.scope === "organization";
-      if (mode === "enabled" && outside) return false;
+      if (mode === "enabled" && organizationState.scope !== "within") return false;
+      if (mode === "conditional" && organizationState.scope !== "conditional") return false;
       if (mode === "disabled" && !outside) return false;
       if (mode === "high" && !atom.highRisk && !outside) return false;
       return !query || (id + " " + description + " " + domain).indexOf(String(query).toLowerCase()) >= 0;
@@ -1314,7 +1327,7 @@
           var stats = atom.stats || {};
            var organizationState = abgOrganizationAtomState(atom, boundary);
            var outside = organizationState.scope === "organization";
-          var atomClass = outside ? "blocked" : atom.highRisk ? "high" : "";
+          var atomClass = organizationState.scope === "conditional" ? "high" : outside ? "blocked" : "";
           var shortName = String(atom.id || "").split(".").slice(1).join(".") || atom.id;
           return '<button type="button" class="abg-lattice-atom ' + atomClass + '" data-abg-lattice-atom="' + escapeHtml(atom.id) + '" title="' + escapeHtml(atom.description || atom.id) + '"><span>' + escapeHtml(shortName) + '</span><em>' + escapeHtml(stats.hits || 0) + '</em></button>';
         }).join("") + '</div>';
@@ -1355,10 +1368,15 @@
       if (selectedButton) selectedButton.classList.add("selected");
       if (selectedAtom) renderAbgLatticeDetail(panel, selectedAtom, boundary, catalog);
     }
-    var filterCounts = { all: catalog.length, enabled: catalog.filter(function (atom) { return abgOrganizationAtomState(atom, data.boundary || {}).scope !== "organization"; }).length, disabled: catalog.filter(function (atom) { return abgOrganizationAtomState(atom, data.boundary || {}).scope === "organization"; }).length };
+    var filterCounts = {
+      all: catalog.length,
+      enabled: catalog.filter(function (atom) { return abgOrganizationAtomState(atom, data.boundary || {}).scope === "within"; }).length,
+      conditional: catalog.filter(function (atom) { return abgOrganizationAtomState(atom, data.boundary || {}).scope === "conditional"; }).length,
+      disabled: catalog.filter(function (atom) { return abgOrganizationAtomState(atom, data.boundary || {}).scope === "organization"; }).length
+    };
     Object.keys(filterCounts).forEach(function (key) {
       var filterButton = panel.querySelector('[data-abg-lattice-filter="' + key + '"]');
-      if (filterButton) filterButton.textContent = (key === "all" ? "全部" : key === "enabled" ? "策略允许" : "策略不允许") + " (" + filterCounts[key] + ")";
+      if (filterButton) filterButton.textContent = (key === "all" ? "全部" : key === "enabled" ? "策略允许" : key === "conditional" ? "需审批" : "策略不允许") + " (" + filterCounts[key] + ")";
     });
     var count = panel.querySelector("#abgAtomCount");
     if (count) count.textContent = "共 " + visible.length + " / " + catalog.length + " 个行为原子";
@@ -1547,8 +1565,12 @@
     var domainRows = (effective.domainStats || []).map(function (item) {
       return '<tr><td><b>' + escapeHtml(item.domain) + '</b></td><td>' + escapeHtml(item.allow) + '</td><td>' + escapeHtml(item.conditional) + '</td><td>' + escapeHtml(item.deny) + '</td><td>' + escapeHtml(item.total) + '</td></tr>';
     }).join("");
+    var contributionByRule = {};
+    (effective.ruleContributions || []).forEach(function (item) { contributionByRule[item.ruleId] = item; });
     var rows = rules.map(function (rule) {
-      var auth = groups(rule);
+      var configuredAuth = groups(rule);
+      var contribution = contributionByRule[rule.id];
+      var auth = contribution && contribution.atoms || configuredAuth;
       return '<div class="policy-row" data-policy-rule="' + escapeHtml(rule.id) + '"><div><div class="policy-name">' + escapeHtml(rule.name || rule.id) + '</div><div class="policy-sub">' + escapeHtml(rule.description || "未填写说明") + '</div><div class="small muted">作用域 ' + escapeHtml((rule.agentScope || ["*"]).join(", ")) + ' · P' + escapeHtml(rule.priority || 0) + '</div></div><div class="policy-rule-groups"><div><b>允许 ' + auth.allow.length + '</b> ' + atomChips(auth.allow, "allow") + '</div><div><b>需审批 ' + auth.conditional.length + '</b> ' + atomChips(auth.conditional, "hold") + '</div><div><b>不允许 ' + auth.deny.length + '</b> ' + atomChips(auth.deny, "block") + '</div></div><div>' + badge(rule.enabled === false ? "已停用" : "生效", rule.enabled === false ? "neutral" : "allow") + '</div><div class="policy-rule-actions"><button class="btn" data-policy-edit="' + escapeHtml(rule.id) + '">编辑</button><button class="btn" data-policy-toggle="' + escapeHtml(rule.id) + '">' + (rule.enabled === false ? "启用" : "停用") + '</button><button class="btn danger" data-policy-delete="' + escapeHtml(rule.id) + '">删除</button></div></div>';
     }).join("");
     panel.innerHTML =

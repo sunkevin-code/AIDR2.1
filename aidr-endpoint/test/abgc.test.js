@@ -34,8 +34,8 @@ const boundaryAtoms = context.window.AIDR_ABCG.selectBoundaryAtoms([
   { id: "DATA.DISABLED", domain: "DATA", baseLevel: 2, enabled: false },
   { id: "EXEC.CALL", domain: "EXEC", baseLevel: 2, enabled: true }
 ], {
-  organization: { levels: { DATA: 2, EXEC: 2 }, maxLevel: 2, deniedAtoms: ["EXEC.CALL"] },
-  task: { levels: { DATA: 1, EXEC: 2 }, maxLevel: 2 }
+  organization: { levels: { DATA: 2, EXEC: 2 }, maxLevel: 2, allowedAtoms: ["DATA.WRITE"], deniedAtoms: ["EXEC.CALL"] },
+  task: { levels: { DATA: 1, EXEC: 2 }, maxLevel: 2, allowedAtoms: ["DATA.READ"] }
 }, "organization", ["DATA", "EXEC"]);
 assert.deepStrictEqual(Array.from(boundaryAtoms[0].atoms, atom => atom.id), ["DATA.WRITE"]);
 assert.strictEqual(boundaryAtoms[0].effectiveLevel, 2);
@@ -53,8 +53,8 @@ const taskBoundaryAtoms = context.window.AIDR_ABCG.selectBoundaryAtoms([
   { id: "DATA.READ", domain: "DATA", baseLevel: 1, enabled: true },
   { id: "DATA.WRITE", domain: "DATA", baseLevel: 2, enabled: true }
 ], {
-  organization: { levels: { DATA: 3 }, maxLevel: 3 },
-  task: { levels: { DATA: 1 }, maxLevel: 1 }
+  organization: { levels: { DATA: 3 }, maxLevel: 3, allowedAtoms: ["DATA.READ", "DATA.WRITE"] },
+  task: { levels: { DATA: 1 }, maxLevel: 1, allowedAtoms: ["DATA.READ"] }
 }, "task", ["DATA"]);
 assert.deepStrictEqual(Array.from(taskBoundaryAtoms[0].atoms, atom => atom.id), ["DATA.READ"]);
 
@@ -65,9 +65,9 @@ const explicitlyAllowedTaskAtoms = context.window.AIDR_ABCG.selectBoundaryAtoms(
   organization: {
     levels: { EXEC: 3 },
     maxLevel: 3,
-    allowedAtoms: ["EXEC.SYSTEM_CALL"]
+    allowedAtoms: ["EXEC.READ", "EXEC.SYSTEM_CALL"]
   },
-  task: { levels: { EXEC: 1 }, maxLevel: 1 }
+  task: { levels: { EXEC: 1 }, maxLevel: 1, allowedAtoms: ["EXEC.READ"] }
 }, "task", ["EXEC"]);
 assert.deepStrictEqual(
   Array.from(explicitlyAllowedTaskAtoms[0].atoms, atom => atom.id),

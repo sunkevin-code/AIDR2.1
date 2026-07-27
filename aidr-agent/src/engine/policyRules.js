@@ -134,16 +134,28 @@ function compilePolicyRules(policy = {}, rules = policy.policyRules, catalogIds 
     domainStats[domain][decision.state] += 1;
     domainStats[domain].total += 1;
   }
-  const ruleContributions = normalized.map(rule => ({
-    ruleId: rule.id,
-    name: rule.name,
-    priority: rule.priority,
-    enabled: rule.enabled,
-    allow: rule.authorization.allow.length,
-    conditional: rule.authorization.conditional.length,
-    deny: rule.authorization.deny.length,
-    atoms: rule.authorization
-  }));
+  const ruleContributions = normalized.map(rule => {
+    const atoms = {
+      allow: rule.authorization.allow.filter(id => decisions.get(id)?.ruleId === rule.id && decisions.get(id)?.state === "allow"),
+      conditional: rule.authorization.conditional.filter(id => decisions.get(id)?.ruleId === rule.id && decisions.get(id)?.state === "conditional"),
+      deny: rule.authorization.deny.filter(id => decisions.get(id)?.ruleId === rule.id && decisions.get(id)?.state === "deny")
+    };
+    return {
+      ruleId: rule.id,
+      name: rule.name,
+      priority: rule.priority,
+      enabled: rule.enabled,
+      allow: atoms.allow.length,
+      conditional: atoms.conditional.length,
+      deny: atoms.deny.length,
+      configured: {
+        allow: rule.authorization.allow.length,
+        conditional: rule.authorization.conditional.length,
+        deny: rule.authorization.deny.length
+      },
+      atoms
+    };
+  });
   const compiledAtoms = Array.from(decisions.keys()).sort();
   const baseline = baselineMetadata(policy);
   const effectivePolicy = {
