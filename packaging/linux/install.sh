@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SERVER_URL=""
+ENROLLMENT_TOKEN=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --server) SERVER_URL="${2:-}"; shift 2 ;;
+    --enrollment-token) ENROLLMENT_TOKEN="${2:-}"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "AIDR installation requires root." >&2
   exit 1
@@ -25,9 +35,20 @@ rm -rf /opt/aidr/agent
 cp -a "${ROOT}/agent" /opt/aidr/agent
 cd /opt/aidr/agent
 npm install --omit=dev --ignore-scripts
+if [[ ! -f /var/lib/aidr/data/policy.json ]]; then
+  install -m 0600 /opt/aidr/agent/config/policy.json /var/lib/aidr/data/policy.json
+fi
+if [[ -n "${SERVER_URL}" || -n "${ENROLLMENT_TOKEN}" ]]; then
+  if [[ -z "${SERVER_URL}" || -z "${ENROLLMENT_TOKEN}" ]]; then
+    echo "--server and --enrollment-token must be supplied together." >&2
+    exit 1
+  fi
+  node "${ROOT}/enroll.js" "${SERVER_URL}" "${ENROLLMENT_TOKEN}" /var/lib/aidr/data/policy.json
+fi
 install -m 0644 "${ROOT}/aidr-endpoint.service" /etc/systemd/system/aidr-endpoint.service
 systemctl daemon-reload
 systemctl enable --now aidr-endpoint.service
 sleep 2
 systemctl --no-pager --full status aidr-endpoint.service
 echo "AIDR Endpoint installed. Local API: http://127.0.0.1:8788/health"
+if [[ -n "${SERVER_URL}" ]]; then echo "Unified console: ${SERVER_URL}/console"; fi

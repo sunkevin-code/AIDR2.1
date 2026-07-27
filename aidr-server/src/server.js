@@ -1,13 +1,16 @@
 ﻿const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const { v4: uuidv4 } = require("uuid");
 
 const PORT = parseInt(process.env.PORT || "8888");
-const DATA_DIR = path.join(__dirname, "..", "data");
+const DATA_DIR = process.env.AIDR_SERVER_DATA_DIR || path.join(__dirname, "..", "data");
 const DB_PATH = path.join(DATA_DIR, "aidr-server.db");
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const ENDPOINT_UI_DIR = path.join(__dirname, "..", "..", "aidr-endpoint", "ui");
+const ENROLLMENT_TOKEN = process.env.AIDR_ENROLLMENT_TOKEN || "";
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -98,6 +101,12 @@ async function initDB() {
     )
   `);
   db.run("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)");
+  db.run(`CREATE TABLE IF NOT EXISTS endpoint_credentials (
+    agent_id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    revoked_at TEXT
+  )`);
   _saveDB();
 }
 
@@ -148,7 +157,9 @@ initDB().then(() => {
     const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
     const pathname = url.pathname;
 
-    if (pathname === "/" || pathname === "") return serveStatic(res, "index.html");
+    if (pathname === "/" || pathname === "" || pathname === "/console" || pathname === "/console/") return serveUnifiedConsole(res);
+    if (pathname === "/console/runtime-adapter.js") return serveEndpointUiAsset(res, "runtime-adapter.js");
+    if (pathname === "/console/abgc.js") return serveEndpointUiAsset(res, "abgc.js");
     if (pathname.startsWith("/app.js") || pathname.startsWith("/styles.css")) {
       return serveStatic(res, pathname.slice(1));
     }
@@ -174,6 +185,26 @@ initDB().then(() => {
     }
   }
 
+  function serveEndpointUiAsset(res, filename) {
+    const filePath = path.join(ENDPOINT_UI_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "ui_asset_not_found" }));
+    }
+    res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(fs.readFileSync(filePath));
+  }
+
+  function serveUnifiedConsole(res) {
+    const sourcePath = path.join(ENDPOINT_UI_DIR, "index.html");
+    if (!fs.existsSync(sourcePath)) return serveStatic(res, "index.html");
+    let html = fs.readFileSync(sourcePath, "utf8");
+    html = html.replace("<head>", '<head><meta name="aidr-data-mode" content="central"><meta name="aidr-api-base" content="">');
+    html = html.replace("</body>", '<script src="/console/abgc.js"></script><script src="/console/runtime-adapter.js"></script></body>');
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(html);
+  }
+
   function queryAll(sql, params = []) {
     try {
       const stmt = db.prepare(sql);
@@ -195,6 +226,15 @@ initDB().then(() => {
       db.run(sql, params);
       _saveDB();
     } catch (e) { console.error("SQL exec error:", e.message); }
+  }
+
+  function endpointTokenValid(agentId, suppliedToken) {
+    const credential = queryOne("SELECT token_hash, revoked_at FROM endpoint_credentials WHERE agent_id = ?", [agentId]);
+    if (!credential) return process.env.AIDR_ALLOW_LEGACY_INGEST === "1";
+    if (credential.revoked_at || !suppliedToken) return false;
+    const actual = crypto.createHash("sha256").update(String(suppliedToken), "utf8").digest("hex");
+    const expected = String(credential.token_hash);
+    return actual.length === expected.length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
   }
 
   function ensureAgent(agentId, metadata = {}) {
@@ -274,8 +314,114 @@ initDB().then(() => {
     try {
       let result;
 
+      if (pathname === "/api/v1/enroll" && req.method === "POST") {
+        if (!ENROLLMENT_TOKEN) {
+          res.writeHead(503, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "enrollment_not_configured" }));
+        }
+        if (!body || body.enrollmentToken !== ENROLLMENT_TOKEN) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "invalid_enrollment_token" }));
+        }
+        const endpointId = String(body.endpointId || `aidr-${body.hostname || "endpoint"}-${uuidv4().slice(0, 8)}`).replace(/[^A-Za-z0-9_.-]/g, "-");
+        const endpointToken = crypto.randomBytes(32).toString("base64url");
+        const tokenHash = crypto.createHash("sha256").update(endpointToken, "utf8").digest("hex");
+        execSQL("INSERT OR REPLACE INTO endpoint_credentials (agent_id, token_hash, issued_at, revoked_at) VALUES (?, ?, ?, NULL)",
+          [endpointId, tokenHash, new Date().toISOString()]);
+        ensureAgent(endpointId, body);
+        result = { ok: true, endpointId, endpointToken, serverUrl: `http://${req.headers.host}`, issuedAt: new Date().toISOString() };
+      }
+      else if (pathname === "/console/api/endpoints" && req.method === "GET") {
+        result = { endpoints: Array.from(agents.values()).map(agent => ({
+          id: agent.id, hostname: agent.hostname, platform: agent.platform, arch: agent.arch,
+          version: agent.version, status: agent.status, lastSeen: agent.last_seen
+        })) };
+      }
+      else if (pathname === "/console/api/status" && req.method === "GET") {
+        const endpointId = url.searchParams.get("endpoint_id");
+        const selected = endpointId ? agents.get(endpointId) : null;
+        result = {
+          status: selected ? selected.status : "central",
+          mode: "central-control-plane",
+          endpointId: selected?.id || null,
+          endpointCount: agents.size,
+          onlineEndpoints: Array.from(agents.values()).filter(agent => agent.status === "online").length,
+          platform: selected?.platform || "multi-platform",
+          version: selected?.version || "2.4.0"
+        };
+      }
+      else if (pathname === "/console/api/agents" && req.method === "GET") {
+        const endpointId = url.searchParams.get("endpoint_id");
+        const selected = endpointId ? [agents.get(endpointId)].filter(Boolean) : Array.from(agents.values());
+        result = { agents: selected.map(agent => ({
+          id: agent.id, label: agent.hostname || agent.id, vendor: "AIDR Endpoint", category: agent.platform,
+          status: agent.status, confidence: 100, lastSeenAt: agent.last_seen, platform: agent.platform,
+          endpointId: agent.id, sensors: agent.sensors || []
+        })) };
+      }
+      else if (pathname === "/console/api/sessions" && req.method === "GET") {
+        const endpointId = url.searchParams.get("endpoint_id");
+        const rows = endpointId
+          ? queryAll("SELECT * FROM sessions WHERE agent_id = ? ORDER BY start_time DESC LIMIT 100", [endpointId])
+          : queryAll("SELECT * FROM sessions ORDER BY start_time DESC LIMIT 100");
+        result = { sessions: rows.map(row => ({ ...row, agentId: row.agent_id, timestamp: row.start_time, endpointId: row.agent_id })) };
+      }
+      else if (/^\/console\/api\/sessions\/[^/]+$/.test(pathname) && req.method === "GET") {
+        const sessionId = decodeURIComponent(pathname.split("/").pop());
+        const row = queryOne("SELECT * FROM sessions WHERE id = ?", [sessionId]);
+        if (!row) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "session_not_found" }));
+        }
+        const sessionEvents = queryAll("SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC", [sessionId]);
+        result = {
+          ...row,
+          agentId: row.agent_id,
+          timestamp: row.start_time,
+          endpointId: row.agent_id,
+          events: sessionEvents.map(event => ({
+            ...event,
+            eventId: event.event_id,
+            agentId: event.agent_id,
+            sessionId: event.session_id
+          }))
+        };
+      }
+      else if (pathname === "/console/api/events" && req.method === "GET") {
+        const endpointId = url.searchParams.get("endpoint_id");
+        const rows = endpointId
+          ? queryAll("SELECT * FROM events WHERE agent_id = ? ORDER BY timestamp DESC LIMIT 500", [endpointId])
+          : queryAll("SELECT * FROM events ORDER BY timestamp DESC LIMIT 500");
+        result = { events: rows.map(row => ({ ...row, eventId: row.event_id, agentId: row.agent_id, sessionId: row.session_id, endpointId: row.agent_id })) };
+      }
+      else if (pathname === "/console/api/events/stats" && req.method === "GET") {
+        const endpointId = url.searchParams.get("endpoint_id");
+        const params = endpointId ? [endpointId] : [];
+        const where = endpointId ? " WHERE agent_id = ?" : "";
+        result = {
+          total: queryOne("SELECT COUNT(*) as c FROM events" + where, params)?.c || 0,
+          byVerdict: queryAll("SELECT verdict, COUNT(*) as c FROM events" + where + " GROUP BY verdict", params),
+          byCategory: queryAll("SELECT category, COUNT(*) as c FROM events" + where + " GROUP BY category ORDER BY c DESC", params)
+        };
+      }
+      else if (pathname === "/console/api/policy" && req.method === "GET") {
+        const row = queryOne("SELECT * FROM policies WHERE enabled=1 ORDER BY updated_at DESC LIMIT 1");
+        result = row ? JSON.parse(row.config || "{}") : { version: "central-default", mode: "monitor", organizationBoundary: { maxLevel: 3 } };
+      }
+      else if (pathname === "/console/api/behavior-atoms" && req.method === "GET") {
+        result = { catalog: [], agents: [], stats: [], occurrences: [], mappingQuality: { status: "awaiting_endpoint_atom_stream" } };
+      }
+      else if (pathname === "/console/api/semantic/local-config" && req.method === "GET") {
+        result = { enabled: false, mode: "endpoint_managed", status: "central_view" };
+      }
+      else if (pathname === "/console/api/semantic/config" && req.method === "GET") {
+        result = { enabled: false, provider: "central-policy", status: "not_configured" };
+      }
+      else if (pathname === "/console/api/diagnostics/performance" && req.method === "GET") {
+        result = { status: "healthy", endpointCount: agents.size, database: "ready" };
+      }
       // Agents
-      if (pathname === "/api/v1/agents" && req.method === "GET") {
+      else if (pathname === "/api/v1/agents" && req.method === "GET") {
         result = Array.from(agents.values()).map(a => ({
           id: a.id, agentType: a.agent_type, hostname: a.hostname,
           platform: a.platform, version: a.version, status: a.status,
@@ -317,6 +463,12 @@ initDB().then(() => {
       }
       // Reliable local HTTP ingest fallback for endpoint audit events.
       else if (pathname === "/api/v1/ingest" && req.method === "POST") {
+        const candidateAgentId = String(body?.agentId || body?.message?.agentId || "");
+        const suppliedToken = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+        if (!endpointTokenValid(candidateAgentId, suppliedToken)) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "endpoint_authentication_failed" }));
+        }
         const accepted = ingestTransportMessage(body || {});
         res.writeHead(accepted.statusCode, { "Content-Type": "application/json" });
         return res.end(JSON.stringify(accepted.result));

@@ -711,6 +711,7 @@ function startUiServer() {
     const url = new URL(req.url, `http://127.0.0.1:${UI_PORT}`);
     setUiHeaders(res);
     if (url.pathname === "/" || url.pathname === "/index.html") return sendHtml(res, renderUi());
+    if (url.pathname === "/local-status") return sendHtml(res, renderLocalStatus());
     if (url.pathname === "/favicon.ico") {
       res.writeHead(204);
       return res.end();
@@ -959,6 +960,33 @@ function renderUi() {
   <body style="font-family:Segoe UI,Microsoft YaHei,sans-serif;padding:32px;color:#18212f">
   <h1>AIDR ????????</h1><p>????? UI ??????????? AIDR Endpoint?</p>
   <p>Endpoint version: ${VERSION}</p></body></html>`;
+}
+
+function renderLocalStatus() {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AIDR Endpoint 本地状态</title><style>
+  *{box-sizing:border-box}body{margin:0;background:#f3f6f8;color:#172235;font:14px "Segoe UI","Microsoft YaHei",sans-serif}
+  main{max-width:860px;margin:0 auto;padding:32px 22px}.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  h1{font-size:22px;margin:0}.badge{padding:5px 9px;border-radius:4px;background:#e4f5ef;color:#08745d;font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.panel{background:#fff;border:1px solid #d9e2e8;border-radius:7px;padding:17px}
+  .label{color:#66758a;font-size:12px;margin-bottom:7px}.value{font-size:17px;font-weight:700;overflow-wrap:anywhere}.wide{grid-column:1/-1}
+  .error{color:#b42318}a{color:#08745d}@media(max-width:640px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+  </style></head><body><main><div class="head"><h1>AIDR Endpoint 本地状态</h1><span id="health" class="badge">检查中</span></div>
+  <div class="grid"><section class="panel"><div class="label">Endpoint 服务</div><div id="endpoint" class="value">-</div></section>
+  <section class="panel"><div class="label">User-mode Agent</div><div id="agent" class="value">-</div></section>
+  <section class="panel"><div class="label">中央连接</div><div id="transport" class="value">-</div></section>
+  <section class="panel"><div class="label">版本</div><div class="value">${VERSION}</div></section>
+  <section class="panel wide"><div class="label">诊断说明</div><div>此页面仅用于本机健康检查。跨 Windows/Linux 的资产、会话、策略和行为分析请使用统一服务端控制台。</div></section>
+  </div><script>
+  fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json()}).then(function(s){
+    var endpoint=s.endpoint||{},agent=s.agent||{},transport=(agent.transport||agent.runtime||{});
+    document.getElementById("endpoint").textContent=endpoint.status||endpoint.state||"running";
+    document.getElementById("agent").textContent=s.degraded?"unavailable":(agent.status||"running");
+    document.getElementById("transport").textContent=transport.transportMode||transport.status||(agent.serverConfigured?"configured":"standalone");
+    document.getElementById("health").textContent=s.degraded?"降级":"正常";
+    if(s.degraded)document.getElementById("health").classList.add("error");
+  }).catch(function(){document.getElementById("health").textContent="不可用";document.getElementById("health").classList.add("error")});
+  </script></main></body></html>`;
 }
 
 function openUi() {

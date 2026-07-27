@@ -2,6 +2,16 @@
   "use strict";
 
   var state = { agents: [], sessions: [], events: [], status: {}, policy: {}, behaviorAtoms: { catalog: [], agents: [], stats: [] }, dataErrors: {}, lastSuccessfulRefresh: null, hasSuccessfulDataset: false };
+  var dataSource = (function () {
+    var modeMeta = document.querySelector('meta[name="aidr-data-mode"]');
+    var baseMeta = document.querySelector('meta[name="aidr-api-base"]');
+    var endpointMeta = document.querySelector('meta[name="aidr-endpoint-id"]');
+    return {
+      mode: modeMeta ? modeMeta.getAttribute("content") : "local",
+      base: (baseMeta ? baseMeta.getAttribute("content") : "").replace(/\/$/, ""),
+      endpointId: endpointMeta ? endpointMeta.getAttribute("content") : ""
+    };
+  })();
   var abgSelectedAgent = "";
   var abgSelectedAtomId = "";
   var abgSessionMode = "permission";
@@ -79,17 +89,53 @@
     hermes: "Hermes (AI 助手)",
     cursor: "Cursor"
   };
+  function resolveApiPath(apiPath) {
+    if (dataSource.mode !== "central") return apiPath;
+    var target = dataSource.base + "/console" + apiPath;
+    if (dataSource.endpointId && /^\/api\/(?:status|agents|sessions|events|behavior-atoms|orbits)/.test(apiPath)) {
+      target += (target.indexOf("?") >= 0 ? "&" : "?") + "endpoint_id=" + encodeURIComponent(dataSource.endpointId);
+    }
+    return target;
+  }
+
   function api(path, options) {
     var config = options || {};
     var headers = Object.assign({ Accept: "application/json" }, config.headers || {});
     var tokenMeta = document.querySelector('meta[name="aidr-ui-token"]');
     var uiToken = tokenMeta ? tokenMeta.getAttribute("content") : "";
     if (uiToken) headers["x-aidr-ui-token"] = uiToken;
-    return fetch(path, Object.assign({}, config, { headers: headers, cache: "no-store" }))
+    return fetch(resolveApiPath(path), Object.assign({}, config, { headers: headers, cache: "no-store" }))
       .then(function (response) {
         if (!response.ok) throw new Error("HTTP " + response.status);
         return response.json();
       });
+  }
+
+  function ensureEndpointSelector() {
+    if (dataSource.mode !== "central" || document.getElementById("aidrEndpointSelector")) return;
+    var topMeta = document.querySelector(".top-meta") || document.querySelector(".topbar");
+    if (!topMeta) return;
+    var select = document.createElement("select");
+    select.id = "aidrEndpointSelector";
+    select.className = "select";
+    select.setAttribute("aria-label", "Endpoint");
+    select.innerHTML = '<option value="">全部 Endpoint</option>';
+    select.addEventListener("change", function () {
+      dataSource.endpointId = select.value;
+      refresh();
+    });
+    topMeta.insertBefore(select, topMeta.firstChild);
+    fetch(dataSource.base + "/console/api/endpoints", { cache: "no-store" }).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    }).then(function (payload) {
+      (payload.endpoints || payload || []).forEach(function (endpoint) {
+        var option = document.createElement("option");
+        option.value = endpoint.id;
+        option.textContent = (endpoint.hostname || endpoint.id) + " · " + (endpoint.platform || "unknown");
+        select.appendChild(option);
+      });
+    }).catch(function () {});
   }
 
   function renderDataHealth(errors) {
@@ -1523,6 +1569,7 @@
 
   window.refreshAidrData = refresh;
   window.aidrNavigate = navigate;
+  ensureEndpointSelector();
   initialPage();
   document.getElementById("refreshBtn")?.addEventListener("click", refresh);
   document.querySelectorAll(".nav button").forEach(function (button) {

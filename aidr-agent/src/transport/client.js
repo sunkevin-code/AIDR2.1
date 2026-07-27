@@ -34,7 +34,13 @@ class TransportClient {
 
     if (this.policy.transportMode !== "websocket") {
       this._postHttp({ type: "register", agentId: this.policy.agentId, agentType: this.policy.agentType, version: this.policy.version, hostname: require("os").hostname(), platform: process.platform, arch: process.arch, sensors: Object.keys(this.policy.sensors || {}).filter(k => this.policy.sensors[k].enabled) })
-        .then(() => { this.httpHealthy = true; this.stats.lastHttpAt = new Date().toISOString(); this._retryHttpQueue(); })
+        .then(() => {
+          this.httpHealthy = true;
+          this.stats.lastHttpAt = new Date().toISOString();
+          this.stats.lastConnectedAt = this.stats.lastHttpAt;
+          this._startHeartbeat();
+          this._retryHttpQueue();
+        })
         .catch(error => { this.stats.lastHttpError = String(error.message || error); this.stats.lastError = this.stats.lastHttpError; this._scheduleHttpRetry(); });
       return true;
     }
@@ -185,16 +191,30 @@ class TransportClient {
   _startHeartbeat() {
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
     this.heartbeatInterval = setInterval(() => {
-      if (this.connected) {
-        this._send({
+      if (this.connected || this.httpHealthy) {
+        const heartbeat = {
           type: "heartbeat",
           agentId: this.policy.agentId,
           timestamp: new Date().toISOString(),
           uptime: process.uptime(),
           stats: this.stats
-        });
+        };
+        if (this.policy.transportMode === "websocket") {
+          this._send(heartbeat);
+        } else {
+          this._postHttp(heartbeat).then(() => {
+            this.httpHealthy = true;
+            this.stats.lastHttpAt = new Date().toISOString();
+          }).catch(error => {
+            this.httpHealthy = false;
+            this.stats.lastHttpError = String(error.message || error);
+            this.stats.lastError = this.stats.lastHttpError;
+            this._scheduleHttpRetry();
+          });
+        }
       }
     }, 10000);
+    this.heartbeatInterval.unref?.();
   }
 
   _onDisconnect() {
