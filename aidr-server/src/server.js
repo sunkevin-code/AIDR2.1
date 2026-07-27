@@ -6,10 +6,11 @@ const { WebSocketServer } = require("ws");
 const { v4: uuidv4 } = require("uuid");
 
 const PORT = parseInt(process.env.PORT || "8888");
+const HOST = process.env.AIDR_SERVER_HOST || "127.0.0.1";
 const DATA_DIR = process.env.AIDR_SERVER_DATA_DIR || path.join(__dirname, "..", "data");
 const DB_PATH = path.join(DATA_DIR, "aidr-server.db");
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const ENDPOINT_UI_DIR = path.join(__dirname, "..", "..", "aidr-endpoint", "ui");
+const ENDPOINT_UI_DIR = process.env.AIDR_CONSOLE_UI_DIR || path.join(__dirname, "..", "..", "aidr-endpoint", "ui");
 const ENROLLMENT_TOKEN = process.env.AIDR_ENROLLMENT_TOKEN || "";
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -673,9 +674,10 @@ initDB().then(() => {
     }
   }
 
-server.listen(PORT, "127.0.0.1", () => {
-    console.log("AIDR 2.0 Server running at http://127.0.0.1:" + PORT);
-    console.log("WebSocket: ws://127.0.0.1:" + PORT + "/ws/agent");
-    console.log("Dashboard: http://127.0.0.1:" + PORT + "/");
+server.listen(PORT, HOST, () => {
+    const displayHost = HOST === "0.0.0.0" ? "<server-address>" : HOST;
+    console.log("AIDR 2.0 Server running at http://" + displayHost + ":" + PORT);
+    console.log("WebSocket: ws://" + displayHost + ":" + PORT + "/ws/agent");
+    console.log("Dashboard: http://" + displayHost + ":" + PORT + "/console");
   });
 });

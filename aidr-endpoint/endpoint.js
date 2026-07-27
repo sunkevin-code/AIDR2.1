@@ -2,6 +2,7 @@ const childProcess = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
+const https = require("https");
 const moduleApi = require("module");
 const os = require("os");
 const path = require("path");
@@ -22,6 +23,7 @@ const SERVICE_HOST_BINARY = "AIDR.ServiceHost.exe";
 const SERVICE_HOST_EXE = path.join(INSTALL_DIR, SERVICE_HOST_BINARY);
 const RUNNER_CMD = path.join(INSTALL_DIR, "run-endpoint.cmd");
 const TOKEN_FILE = path.join(INSTALL_DIR, ".local-token");
+const POLICY_FILE = path.join(INSTALL_DIR, "data", "policy.json");
 const CODEX_HOOKS_FILE = path.join(process.env.AIDR_CODEX_HOME || os.homedir(), ".codex", "hooks.json");
 const OPENCODE_PLUGIN_FILE = path.join(process.env.AIDR_OPENCODE_HOME || path.join(os.homedir(), ".config", "opencode"), "plugins", "aidr-endpoint.js");
 const HEALTH_PORT = Number(process.env.AIDR_ENDPOINT_HEALTH_PORT || 8790);
@@ -386,7 +388,82 @@ function codexHooksStatus() {
   }
 }
 
-function install() {
+function optionValue(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? String(process.argv[index + 1] || "") : "";
+}
+
+function postJson(targetUrl, body, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try { target = new URL(targetUrl); } catch (error) { return reject(error); }
+    const payload = Buffer.from(JSON.stringify(body), "utf8");
+    const transport = target.protocol === "https:" ? https : http;
+    const request = transport.request({
+      hostname: target.hostname,
+      port: target.port || (target.protocol === "https:" ? 443 : 80),
+      path: target.pathname + target.search,
+      method: "POST",
+      timeout: timeoutMs,
+      headers: { "Content-Type": "application/json", "Content-Length": payload.length }
+    }, response => {
+      let raw = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => raw += chunk);
+      response.on("end", () => {
+        let parsed = {};
+        try { parsed = raw ? JSON.parse(raw) : {}; } catch (_) {}
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          return reject(new Error(parsed.error || `http_${response.statusCode}`));
+        }
+        resolve(parsed);
+      });
+    });
+    request.on("timeout", () => request.destroy(new Error("request_timeout")));
+    request.on("error", reject);
+    request.end(payload);
+  });
+}
+
+async function enrollEndpoint(serverUrl, enrollmentToken) {
+  const normalizedServer = String(serverUrl || "").replace(/\/$/, "");
+  if (!normalizedServer && !enrollmentToken) return null;
+  if (!normalizedServer || !enrollmentToken) throw new Error("--server and --enrollment-token must be supplied together");
+  const enrollment = await postJson(`${normalizedServer}/api/v1/enroll`, {
+    enrollmentToken,
+    hostname: os.hostname(),
+    platform: process.platform,
+    arch: process.arch,
+    version: VERSION,
+    agentType: "aidr-endpoint"
+  });
+  if (!enrollment.endpointId || !enrollment.endpointToken) throw new Error("invalid_enrollment_response");
+  let policy = {};
+  try { policy = JSON.parse(fs.readFileSync(POLICY_FILE, "utf8")); } catch (_) {}
+  policy.agentId = enrollment.endpointId;
+  policy.serverUrl = normalizedServer;
+  policy.serverAuthToken = enrollment.endpointToken;
+  policy.transportMode = "http";
+  ensureDir(path.dirname(POLICY_FILE));
+  const temp = `${POLICY_FILE}.tmp-${process.pid}`;
+  fs.writeFileSync(temp, JSON.stringify(policy, null, 2), { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temp, POLICY_FILE);
+  return { endpointId: enrollment.endpointId, serverUrl: normalizedServer };
+}
+
+async function configureCentralConnection() {
+  const enrollment = await enrollEndpoint(optionValue("--server"), optionValue("--enrollment-token"));
+  if (!enrollment) throw new Error("--server and --enrollment-token are required");
+  if (process.platform === "win32") {
+    run("sc.exe", ["stop", SERVICE_NAME], { stdio: "ignore" });
+    waitSync(1200);
+    startNativeService();
+  }
+  console.log(`Endpoint ${enrollment.endpointId} enrolled with ${enrollment.serverUrl}`);
+  console.log(`Unified console: ${enrollment.serverUrl}/console`);
+}
+
+async function install() {
   ensureDir(INSTALL_DIR);
   ensureDir(LOG_DIR);
   localToken = loadOrCreateToken();
@@ -397,6 +474,7 @@ function install() {
   if (path.resolve(process.execPath).toLowerCase() !== path.resolve(ENDPOINT_EXE).toLowerCase()) copyFileWithRetry(process.execPath, ENDPOINT_EXE);
   installAgentPayload();
   if (!agentPayloadVerification.valid) throw new Error(`Agent payload verification failed: ${agentPayloadVerification.status}`);
+  const enrollment = await enrollEndpoint(optionValue("--server"), optionValue("--enrollment-token"));
   installOpenCodePlugin();
   installServiceHost();
   installCodexHooks();
@@ -412,6 +490,7 @@ function install() {
   console.log(`UI: http://127.0.0.1:${UI_PORT}`);
   console.log(`Codex hooks: ${CODEX_HOOKS_FILE}`);
   console.log(`OpenCode plugin: ${OPENCODE_PLUGIN_FILE}`);
+  if (enrollment) console.log(`Unified console: ${enrollment.serverUrl}/console (${enrollment.endpointId})`);
 }
 
 function installServiceHost() {
@@ -998,13 +1077,14 @@ async function main() {
   const cmd = (process.argv[2] || "ui").toLowerCase();
   if (cmd === "agent-worker") return runAgentWorker();
   if (cmd === "self-test") return runSelfTest();
-  if (cmd === "install") return install();
+  if (cmd === "install") return await install();
+  if (cmd === "enroll") return await configureCentralConnection();
   if (cmd === "uninstall") return uninstall();
   if (cmd === "service") return startService();
   if (cmd === "hook") return handleHookCommand();
   if (cmd === "status") return console.log(JSON.stringify(fetchJsonSync(`http://127.0.0.1:${HEALTH_PORT}/health`, 1500) || { running: false }, null, 2));
   if (cmd === "ui" || cmd === "start") return openUi();
-  console.log("Usage: AIDR.Endpoint.exe [install|uninstall|service|hook|ui|status]");
+  console.log("Usage: AIDR.Endpoint.exe install|enroll [--server URL --enrollment-token TOKEN] | uninstall | service | hook | ui | status");
 }
 
 process.on("SIGINT", () => { stopAgent(); process.exit(0); });

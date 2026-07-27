@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/control-plane.integration.js"
+    "test": "node test/control-plane.integration.js",
+    "health-check": "node tools/post-install-check.js"
   },
   "dependencies": {
     "ws": "^8.17.0",
