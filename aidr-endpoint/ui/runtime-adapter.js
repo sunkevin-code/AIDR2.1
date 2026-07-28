@@ -1536,6 +1536,7 @@
   function renderPolicyRules() {
     var panel = document.querySelector("#page-policy .policy-layout > .panel:first-child");
     if (!panel) return;
+    if (panel.querySelector(".policy-modal-backdrop:not([hidden])")) return;
     var policy = state.policy || {};
     var baseline = policy.policyBaseline || policy.effectivePolicy && policy.effectivePolicy.baseline || {};
     var effective = policy.effectivePolicy || {};
