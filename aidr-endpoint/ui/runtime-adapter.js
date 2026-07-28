@@ -1573,25 +1573,28 @@
       var auth = contribution && contribution.atoms || configuredAuth;
       return '<div class="policy-row" data-policy-rule="' + escapeHtml(rule.id) + '"><div><div class="policy-name">' + escapeHtml(rule.name || rule.id) + '</div><div class="policy-sub">' + escapeHtml(rule.description || "未填写说明") + '</div><div class="small muted">作用域 ' + escapeHtml((rule.agentScope || ["*"]).join(", ")) + ' · P' + escapeHtml(rule.priority || 0) + '</div></div><div class="policy-rule-groups"><div><b>允许 ' + auth.allow.length + '</b> ' + atomChips(auth.allow, "allow") + '</div><div><b>需审批 ' + auth.conditional.length + '</b> ' + atomChips(auth.conditional, "hold") + '</div><div><b>不允许 ' + auth.deny.length + '</b> ' + atomChips(auth.deny, "block") + '</div></div><div>' + badge(rule.enabled === false ? "已停用" : "生效", rule.enabled === false ? "neutral" : "allow") + '</div><div class="policy-rule-actions"><button class="btn" data-policy-edit="' + escapeHtml(rule.id) + '">编辑</button><button class="btn" data-policy-toggle="' + escapeHtml(rule.id) + '">' + (rule.enabled === false ? "启用" : "停用") + '</button><button class="btn danger" data-policy-delete="' + escapeHtml(rule.id) + '">删除</button></div></div>';
     }).join("");
+    var policyHits = Number(state.eventStats && state.eventStats.total || 0);
+    var hitDetails = (state.eventStats && state.eventStats.byVerdict || []).map(function (item) {
+      return '<tr><td>' + escapeHtml(String(item.verdict || "unknown").toUpperCase()) + '</td><td>' + escapeHtml(item.c || item.count || 0) + '</td></tr>';
+    }).join("");
     panel.innerHTML =
-      '<div class="panel-head"><div><h2>组织策略 Baseline</h2><p>一个 Baseline 包含多条规则；每条规则分别定义允许、需审批和不允许的行为原子。</p></div><button class="btn primary" id="policyRuleNew">新建规则</button></div>' +
-      '<div class="panel-body"><div class="policy-baseline-summary">' +
-        '<div><small>Baseline</small><strong>' + escapeHtml(baseline.name || "AIDR Organization Baseline") + '</strong><span>' + escapeHtml(baseline.id || "default-baseline") + '</span></div>' +
-        '<div><small>版本 / Revision</small><strong>' + escapeHtml(baseline.version || policy.version || "-") + '</strong><span>R' + escapeHtml(baseline.revision || 0) + '</span></div>' +
-        '<button type="button" class="policy-summary-button" data-policy-summary="rules"><small>规则</small><strong>' + rules.length + '</strong><span>' + rules.filter(function (r) { return r.enabled !== false; }).length + ' 条生效 · 点击查看</span></button>' +
-        '<div><small>允许</small><strong class="text-allow">' + authorization.allowedAtoms.length + '</strong><span>直接放行</span></div>' +
-        '<div><small>需审批</small><strong class="text-hold">' + authorization.conditionalAtoms.length + '</strong><span>审批后放行</span></div>' +
-        '<div><small>不允许</small><strong class="text-block">' + authorization.deniedAtoms.length + '</strong><span>强制阻断</span></div>' +
-      '</div><table class="table policy-domain-table"><thead><tr><th>行为域</th><th>允许</th><th>需审批</th><th>不允许</th><th>合计</th></tr></thead><tbody>' + (domainRows || '<tr><td colspan="5">尚无已编译规则</td></tr>') + '</tbody></table></div>' +
-      '<div id="policyRuleRowsWrap" hidden><div class="panel-head policy-rule-list-head"><div><h2>规则列表</h2><p>优先级数值越小越先决；同一行为原子采用首个生效规则的决策。</p></div><button class="btn" type="button" data-policy-close="rules">收起</button></div>' +
-      '<div id="policyRuleRows">' + (rows || '<div class="empty">暂无规则，请新建第一条权限规则。</div>') + '</div></div>' +
-      '<div class="panel-body policy-rule-editor" id="policyRuleEditor" hidden><input type="hidden" id="policyRuleId"><div class="policy-editor-head"><strong>规则配置</strong><button class="btn" type="button" data-policy-close="editor">关闭</button></div><div class="form-grid">' +
+      '<div class="panel-body"><div class="policy-overview-bar">' +
+        '<button type="button" class="policy-overview-item" data-policy-open="baseline"><small>Baseline</small><strong>' + escapeHtml(baseline.name || "AIDR Organization Baseline") + '</strong><span>点击查看总体策略内容</span></button>' +
+        '<div class="policy-overview-item"><small>策略版本</small><strong>' + escapeHtml(baseline.version || policy.version || "-") + '</strong><span>Revision R' + escapeHtml(baseline.revision || 0) + '</span></div>' +
+        '<button type="button" class="policy-overview-item" data-policy-open="rules"><small>规则</small><strong>' + rules.length + '</strong><span>' + rules.filter(function (r) { return r.enabled !== false; }).length + ' 条生效 · 点击查看</span></button>' +
+        '<button type="button" class="policy-overview-item" data-policy-open="hits"><small>策略命中</small><strong>' + escapeHtml(policyHits) + '</strong><span>最近采集窗口 · 点击查看</span></button>' +
+        '<button class="btn primary policy-overview-action" id="policyRuleNew">新建规则</button>' +
+      '</div></div>' +
+      '<div class="policy-modal-backdrop" id="policyBaselineModal" hidden><section class="policy-modal" role="dialog" aria-modal="true" aria-labelledby="policyBaselineTitle"><div class="panel-head"><div><h2 id="policyBaselineTitle">Baseline 总体策略</h2><p>' + escapeHtml(baseline.id || "default-baseline") + ' · ' + escapeHtml(baseline.version || policy.version || "-") + ' · R' + escapeHtml(baseline.revision || 0) + '</p></div><button class="btn" type="button" data-policy-close="baseline">关闭</button></div><div class="policy-modal-body"><div class="policy-modal-summary"><div><small>允许</small><strong class="text-allow">' + authorization.allowedAtoms.length + '</strong></div><div><small>需审批</small><strong class="text-hold">' + authorization.conditionalAtoms.length + '</strong></div><div><small>不允许</small><strong class="text-block">' + authorization.deniedAtoms.length + '</strong></div></div><table class="table policy-domain-table"><thead><tr><th>行为域</th><th>允许</th><th>需审批</th><th>不允许</th><th>合计</th></tr></thead><tbody>' + (domainRows || '<tr><td colspan="5">尚无已编译规则</td></tr>') + '</tbody></table><h3>允许的行为原子</h3><div class="policy-atom-list">' + atomChips(authorization.allowedAtoms, "allow") + '</div><h3>需审批的行为原子</h3><div class="policy-atom-list">' + atomChips(authorization.conditionalAtoms, "hold") + '</div><h3>不允许的行为原子</h3><div class="policy-atom-list">' + atomChips(authorization.deniedAtoms, "block") + '</div></div></section></div>' +
+      '<div class="policy-modal-backdrop" id="policyRulesModal" hidden><section class="policy-modal" role="dialog" aria-modal="true" aria-labelledby="policyRulesTitle"><div class="panel-head"><div><h2 id="policyRulesTitle">规则列表</h2><p>优先级数值越小越先决；同一行为原子采用首个生效规则的决策。</p></div><button class="btn" type="button" data-policy-close="rules">关闭</button></div><div id="policyRuleRows">' + (rows || '<div class="empty">暂无规则，请新建第一条权限规则。</div>') + '</div></section></div>' +
+      '<div class="policy-modal-backdrop" id="policyHitsModal" hidden><section class="policy-modal" role="dialog" aria-modal="true" aria-labelledby="policyHitsTitle"><div class="panel-head"><div><h2 id="policyHitsTitle">策略命中详情</h2><p>当前事件采集窗口内的最终策略决策统计。</p></div><button class="btn" type="button" data-policy-close="hits">关闭</button></div><div class="policy-modal-body"><table class="table"><thead><tr><th>决策</th><th>命中次数</th></tr></thead><tbody>' + (hitDetails || '<tr><td colspan="2">当前窗口暂无策略命中</td></tr>') + '</tbody></table></div></section></div>' +
+      '<div class="policy-modal-backdrop" id="policyRuleEditorModal" hidden><section class="policy-modal" role="dialog" aria-modal="true" aria-labelledby="policyRuleEditorTitle"><div class="panel-head"><div><h2 id="policyRuleEditorTitle">规则配置</h2><p>保存后立即重新编译 Baseline 与组织权限边界。</p></div><button class="btn" type="button" data-policy-close="editor">关闭</button></div><div class="policy-modal-body policy-rule-editor" id="policyRuleEditor"><input type="hidden" id="policyRuleId"><div class="form-grid">' +
         '<div class="field"><label>规则名称</label><input class="input" id="policyRuleName"></div><div class="field"><label>优先级</label><input class="input" type="number" id="policyRulePriority" value="100"></div>' +
         '<div class="field"><label>Agent 作用域</label><input class="input" id="policyRuleScope" value="*" placeholder="* 或 codex,opencode"></div><div class="field"><label>说明</label><input class="input" id="policyRuleDescription"></div>' +
         '<div class="field full"><label>允许的行为原子</label><textarea class="textarea" id="policyRuleAllow" placeholder="DATA.SOURCE_CODE_READ, DATA.DOCUMENT_READ"></textarea></div>' +
         '<div class="field full"><label>需要审批的行为原子</label><textarea class="textarea" id="policyRuleConditional" placeholder="EXEC.HTTP_CONNECT, TOOL.MCP_CONNECT"></textarea></div>' +
         '<div class="field full"><label>不允许的行为原子</label><textarea class="textarea" id="policyRuleDeny" placeholder="DATA.CREDENTIAL_READ, EXEC.SERVICE_CONTROL"></textarea></div>' +
-      '</div><div class="policy-rule-editor-actions"><button class="btn primary" id="policyRuleSave">保存并编译</button><button class="btn" id="policyRuleCancel">清空</button><span class="small muted" id="policyRuleStatus">保存后将刷新有效策略与组织权限边界。</span></div></div>';
+      '</div><div class="policy-rule-editor-actions"><button class="btn primary" id="policyRuleSave">保存并编译</button><button class="btn" id="policyRuleCancel">清空</button><span class="small muted" id="policyRuleStatus">保存后将刷新有效策略与组织权限边界。</span></div></div></section></div>';
     function values(id) {
       return panel.querySelector(id).value.split(/[,\n]/).map(function (value) { return value.trim().toUpperCase(); }).filter(Boolean);
     }
@@ -1613,15 +1616,26 @@
         .then(function () { status.textContent = message; return refresh(); })
         .catch(function (error) { status.textContent = "保存失败：" + (error.message || "API unavailable"); });
     }
-    var rowsWrap = panel.querySelector("#policyRuleRowsWrap");
-    var editor = panel.querySelector("#policyRuleEditor");
-    function showRules() { rowsWrap.hidden = false; rowsWrap.scrollIntoView({ block: "nearest" }); }
-    function showEditor(rule) { fill(rule || null); editor.hidden = false; editor.scrollIntoView({ block: "nearest" }); if (!rule) panel.querySelector("#policyRuleName").focus(); }
+    var baselineModal = panel.querySelector("#policyBaselineModal");
+    var rulesModal = panel.querySelector("#policyRulesModal");
+    var hitsModal = panel.querySelector("#policyHitsModal");
+    var editorModal = panel.querySelector("#policyRuleEditorModal");
+    function openModal(modal) { if (modal) modal.hidden = false; }
+    function closeModal(modal) { if (modal) modal.hidden = true; }
+    function showRules() { openModal(rulesModal); }
+    function showEditor(rule) { fill(rule || null); openModal(editorModal); if (!rule) panel.querySelector("#policyRuleName").focus(); }
     panel.querySelector("#policyRuleNew").addEventListener("click", function () { showEditor(null); });
-    panel.querySelector("#policyRuleCancel").addEventListener("click", function () { fill(null); editor.hidden = true; });
-    panel.querySelector('[data-policy-summary="rules"]').addEventListener("click", showRules);
-    panel.querySelector('[data-policy-close="rules"]').addEventListener("click", function () { rowsWrap.hidden = true; });
-    panel.querySelector('[data-policy-close="editor"]').addEventListener("click", function () { editor.hidden = true; });
+    panel.querySelector("#policyRuleCancel").addEventListener("click", function () { fill(null); closeModal(editorModal); });
+    panel.querySelector('[data-policy-open="baseline"]').addEventListener("click", function () { openModal(baselineModal); });
+    panel.querySelector('[data-policy-open="rules"]').addEventListener("click", showRules);
+    panel.querySelector('[data-policy-open="hits"]').addEventListener("click", function () { openModal(hitsModal); });
+    panel.querySelector('[data-policy-close="baseline"]').addEventListener("click", function () { closeModal(baselineModal); });
+    panel.querySelector('[data-policy-close="rules"]').addEventListener("click", function () { closeModal(rulesModal); });
+    panel.querySelector('[data-policy-close="hits"]').addEventListener("click", function () { closeModal(hitsModal); });
+    panel.querySelector('[data-policy-close="editor"]').addEventListener("click", function () { closeModal(editorModal); });
+    panel.querySelectorAll(".policy-modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (event) { if (event.target === backdrop) closeModal(backdrop); });
+    });
     panel.querySelectorAll("[data-policy-edit]").forEach(function (button) { button.addEventListener("click", function () { showEditor(rules.find(function (rule) { return rule.id === button.dataset.policyEdit; })); }); });
     panel.querySelectorAll("[data-policy-toggle]").forEach(function (button) { button.addEventListener("click", function () { var id = button.dataset.policyToggle; persist(rules.map(function (rule) { return rule.id === id ? Object.assign({}, rule, { enabled: rule.enabled === false }) : rule; }), "规则状态已更新"); }); });
     panel.querySelectorAll("[data-policy-delete]").forEach(function (button) { button.addEventListener("click", function () { var id = button.dataset.policyDelete; persist(rules.filter(function (rule) { return rule.id !== id; }), "规则已删除"); }); });
@@ -1651,57 +1665,14 @@
       badges[0].className = "badge hold";
     }
     renderPolicyRules();
+    var pageToolbar = page.querySelector(".page-head .toolbar");
+    if (pageToolbar) pageToolbar.remove();
+    var legacyMetrics = page.querySelector(":scope > .grid.grid-4");
+    if (legacyMetrics) legacyMetrics.remove();
+    var legacyMetricDetail = page.querySelector("#policyMetricDetail");
+    if (legacyMetricDetail) legacyMetricDetail.remove();
     var versionHeading = Array.from(page.querySelectorAll(".panel-head h2")).find(function (heading) { return heading.textContent.trim() === "版本与回滚"; });
     if (versionHeading) versionHeading.closest(".panel").remove();
-    var metrics = page.querySelectorAll(":scope > .grid.grid-4 .metric");
-    var effective = policy.effectivePolicy || {};
-    var authorization = effective.authorization || {};
-    var rules = Array.isArray(policy.policyRules) ? policy.policyRules : [];
-    var byVerdict = state.eventStats && state.eventStats.byVerdict || [];
-    var totalHits = Number(state.eventStats && state.eventStats.total || 0);
-    var hitRows = byVerdict.map(function (item) { return (item.verdict || "unknown") + " " + (item.c || item.count || 0); }).join(" · ");
-    var metricData = [
-      { label: "生效规则", value: rules.filter(function (rule) { return rule.enabled !== false; }).length, foot: "点击查看规则", detail: rules.map(function (rule) { return rule.name + " · P" + rule.priority + " · " + (rule.enabled === false ? "已停用" : "生效"); }).join("\n") },
-      { label: "策略命中", value: totalHits, foot: "最近采集窗口", detail: hitRows || "当前窗口暂无策略决策事件" },
-      { label: "需审批原子", value: (authorization.conditionalAtoms || []).length, foot: "点击查看原子", detail: (authorization.conditionalAtoms || []).join("\n") || "当前没有需审批行为原子" },
-      { label: "不允许原子", value: (authorization.deniedAtoms || []).length, foot: "点击查看原子", detail: (authorization.deniedAtoms || []).join("\n") || "当前没有不允许行为原子" }
-    ];
-    metrics.forEach(function (metric, index) {
-      var data = metricData[index];
-      if (!data) return;
-      metric.setAttribute("role", "button");
-      metric.setAttribute("tabindex", "0");
-      metric.dataset.policyMetric = String(index);
-      var label = metric.querySelector(".metric-top");
-      var value = metric.querySelector(".metric-value");
-      var foot = metric.querySelector(".metric-foot");
-      if (label) label.textContent = data.label;
-      if (value) value.textContent = String(data.value);
-      if (foot) foot.textContent = data.foot;
-    });
-    var detail = page.querySelector("#policyMetricDetail");
-    if (!detail && metrics.length) {
-      detail = document.createElement("div");
-      detail.id = "policyMetricDetail";
-      detail.className = "panel policy-metric-detail";
-      detail.hidden = true;
-      metrics[0].parentElement.insertAdjacentElement("afterend", detail);
-    }
-    function openMetric(index) {
-      var data = metricData[index];
-      if (!data || !detail) return;
-      detail.hidden = false;
-      detail.innerHTML = '<div class="panel-head"><div><h2>' + escapeHtml(data.label) + '详情</h2><p>数据来自当前有效策略和实时决策统计。</p></div><button class="btn" data-policy-metric-close>关闭</button></div><div class="panel-body"><pre class="policy-detail-pre">' + escapeHtml(data.detail) + '</pre></div>';
-      detail.querySelector("[data-policy-metric-close]").addEventListener("click", function () { detail.hidden = true; });
-      if (index === 0) {
-        var rulesButton = page.querySelector('[data-policy-summary="rules"]');
-        if (rulesButton) rulesButton.click();
-      }
-    }
-    metrics.forEach(function (metric, index) {
-      metric.onclick = function () { openMetric(index); };
-      metric.onkeydown = function (event) { if (event.key === "Enter" || event.key === " ") openMetric(index); };
-    });
     renderPolicyAbg();
   }
 
