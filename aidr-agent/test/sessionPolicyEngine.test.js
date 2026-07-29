@@ -32,6 +32,11 @@ assert.equal(constrained.riskLevel, "medium");
 const development = engine.analyzePrompt("Edit the README and run the tests.");
 assert.equal(development.capabilities.fileWrite, true);
 assert.equal(development.capabilities.shell, true);
+assert(readOnly.policy.taskBoundary.allowedAtoms.includes("DATA.FILE_READ"));
+assert(!readOnly.policy.taskBoundary.allowedAtoms.includes("EXEC.SHELL_COMMAND"));
+assert(development.policy.taskBoundary.allowedAtoms.includes("EXEC.SHELL_COMMAND"));
+assert.notEqual(readOnly.policy.taskPolicyRevision, development.policy.taskPolicyRevision);
+assert.equal(readOnly.policy.taskBoundary.schemaVersion, "aidr-task-boundary-v1");
 
 const promptResult = engine.handleHook({
   hook_event_name: "UserPromptSubmit",

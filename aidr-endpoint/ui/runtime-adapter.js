@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var state = { agents: [], sessions: [], events: [], status: {}, policy: {}, behaviorAtoms: { catalog: [], agents: [], stats: [] }, dataErrors: {}, lastSuccessfulRefresh: null, hasSuccessfulDataset: false };
+  var state = { agents: [], sessions: [], events: [], status: {}, policy: {}, behaviorAtoms: { catalog: [], agents: [], stats: [] }, dataQuality: {}, dataErrors: {}, lastSuccessfulRefresh: null, hasSuccessfulDataset: false };
   var dataSource = (function () {
     var modeMeta = document.querySelector('meta[name="aidr-data-mode"]');
     var baseMeta = document.querySelector('meta[name="aidr-api-base"]');
@@ -25,6 +25,7 @@
   var abgMotionEnabled = true;
   var refreshInFlight = null;
   var ABG_VIEW_TITLE = "Policy Orbit · 行为原子空间";
+  var pageToolbars = {};
 
   function ensureAbgStyles() {
     if (!document.getElementById("aidr-abg-runtime-style")) {
@@ -35,11 +36,14 @@
       style.textContent += ".abg-intent-evidence{border:1px solid #cde2e6;border-radius:7px;background:#f8fbfc;padding:10px;margin-bottom:10px}.abg-intent-evidence-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:7px}.abg-intent-evidence-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.abg-intent-evidence-item{border:1px solid #d8e5e8;border-radius:5px;background:#fff;padding:7px;min-width:0}.abg-intent-evidence-item b{display:block;color:#526879;font-size:10px;font-weight:600;margin-bottom:2px}.abg-intent-evidence-item span{display:block;overflow-wrap:anywhere;font-size:12px;color:#173045}.abg-intent-evidence-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.abg-intent-evidence-chip{border:1px solid #c6dadd;border-radius:4px;background:#fff;padding:3px 6px;font-size:10px;color:#315565}@media(max-width:800px){.abg-intent-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}";
       style.textContent += ".session-layout{grid-template-columns:285px minmax(0,1fr) 340px}.evidence{align-self:start;min-width:0}.prompt-history-side{margin-top:14px;padding-top:14px;border-top:1px solid #dce7eb}.prompt-history-side .panel-head{padding:0 0 10px}.prompt-history-side .panel-body{padding:4px 0 0;max-height:430px;overflow:auto}.prompt-history-side .trace-row{grid-template-columns:24px 48px minmax(0,1fr) auto;gap:6px;padding:9px 0}.prompt-history-side .trace-kind{white-space:nowrap;font-size:10px}.prompt-history-side .trace-detail{min-width:0}.prompt-history-side .trace-detail>span:first-child{display:block;overflow-wrap:anywhere}.abg-orbit-box{min-height:410px}.abg-orbit-box svg{min-height:410px}.abg-node-label{paint-order:stroke;stroke:#fbfdfd;stroke-width:3px;stroke-linejoin:round}.abg-node.organization .abg-node-label{stroke:#fff7f6}@media(max-width:1180px){.session-layout{grid-template-columns:250px minmax(0,1fr)}.evidence{grid-column:1/-1}}@media(max-width:780px){.session-layout{grid-template-columns:1fr}.evidence{grid-column:auto}.prompt-history-side .panel-body{max-height:none}.abg-orbit-box{min-height:360px}.abg-orbit-box svg{min-height:360px}}";
       style.textContent += ".abg-sector-fill{stroke:none;pointer-events:none}.abg-sector-fill.alt{fill:rgba(20,127,115,.045)}.abg-sector-fill:not(.alt){fill:rgba(82,113,132,.022)}.abg-sector-edge{stroke:#a9bdc6;stroke-width:1.35;stroke-dasharray:4 4;vector-effect:non-scaling-stroke}.abg-orbit-box .abg-axis{stroke:#c4d4da;stroke-width:1;stroke-dasharray:none}.abg-orbit-box .abg-label{paint-order:stroke;stroke:#fbfdfd;stroke-width:4px;stroke-linejoin:round}.abg-node-hit{fill:transparent;stroke:transparent!important;pointer-events:all}";
-      style.textContent += ".abg-orbit-box .abg-boundary{fill:rgba(230,93,164,.10);stroke:#e65da4;stroke-width:2.5}.abg-orbit-box .abg-task-boundary{fill:rgba(255,138,30,.13);stroke:#ff8a1e;stroke-width:2.5}.abg-orbit-box .abg-boundary,.abg-orbit-box .abg-task-boundary,.abg-orbit-box .abg-risk-boundary{pointer-events:none}.abg-boundary-anchor{fill:#fff;stroke-width:2.4;pointer-events:none}.abg-boundary-anchor.organization{stroke:#e65da4}.abg-boundary-anchor.task{stroke:#ff8a1e}.abg-domain-label rect{fill:rgba(255,255,255,.88);stroke:#c9d8de;stroke-width:1}.abg-domain-label .abg-label{font-size:10px}.abg-actual-path{fill:none;stroke:#2f8be6;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.abg-node.actual{fill:#2f8be6;stroke:#fff;stroke-width:2}.abg-block-gate circle{fill:#fff0ef;stroke:#b42318;stroke-width:2.5}.abg-block-gate path{stroke:#b42318;stroke-width:2.5;stroke-linecap:round}.abg-block-gate text{fill:#b42318;font-size:9px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}.abg-task-gate circle{fill:#fff5df;stroke:#c27600;stroke-width:2.5}.abg-task-gate path{stroke:#c27600;stroke-width:2.5;stroke-linecap:round}.abg-task-gate text{fill:#a35b00;font-size:9px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}.abg-node.aggregate{stroke-width:2.2}.abg-node.aggregate.within{fill:#6f8792}.abg-node.aggregate.task{fill:#c27600}.abg-node.aggregate.organization{fill:#b42318}";
+      style.textContent += ".abg-orbit-box .abg-boundary{fill:rgba(230,93,164,.10);stroke:#e65da4;stroke-width:2.5}.abg-orbit-box .abg-task-boundary{fill:rgba(255,138,30,.13);stroke:#ff8a1e;stroke-width:2.5}.abg-orbit-box .abg-boundary,.abg-orbit-box .abg-task-boundary,.abg-orbit-box .abg-risk-boundary{pointer-events:none}.abg-boundary-anchor{fill:#fff;stroke-width:2.4;pointer-events:none}.abg-boundary-anchor.organization{stroke:#e65da4}.abg-boundary-anchor.task{stroke:#ff8a1e}.abg-domain-label rect{fill:rgba(255,255,255,.88);stroke:#c9d8de;stroke-width:1}.abg-domain-label .abg-label{font-size:10px}.abg-actual-path{fill:none;stroke:#2f8be6;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.abg-node.actual{fill:#2f8be6;stroke:#fff;stroke-width:2}.abg-node.actual.aligned{fill:#147f73}.abg-node.actual.divergence{fill:#b42318;stroke:#fff}.abg-node.predicted.observed{fill:#147f73}.abg-block-gate circle{fill:#fff0ef;stroke:#b42318;stroke-width:2.5}.abg-block-gate path{stroke:#b42318;stroke-width:2.5;stroke-linecap:round}.abg-block-gate text{fill:#b42318;font-size:9px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}.abg-task-gate circle{fill:#fff5df;stroke:#c27600;stroke-width:2.5}.abg-task-gate path{stroke:#c27600;stroke-width:2.5;stroke-linecap:round}.abg-task-gate text{fill:#a35b00;font-size:9px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}.abg-node.aggregate{stroke-width:2.2}.abg-node.aggregate.within{fill:#6f8792}.abg-node.aggregate.task{fill:#c27600}.abg-node.aggregate.organization{fill:#b42318}";
       style.textContent += ".abg-orbit-box .abg-boundary{stroke-width:3;stroke-dasharray:10 5}.abg-orbit-box .abg-task-boundary{stroke-width:3.4;stroke-dasharray:3 3}.abg-boundary-halo{fill:none;stroke:rgba(255,255,255,.92);stroke-width:7;pointer-events:none}.abg-boundary-key rect{fill:rgba(255,255,255,.94);stroke:#c9d8de;stroke-width:1}.abg-boundary-key text{font-size:9px;font-weight:700;fill:#33495e}.abg-boundary-key .organization{stroke:#e65da4;stroke-width:3;stroke-dasharray:10 5}.abg-boundary-key .task{stroke:#ff8a1e;stroke-width:3.4;stroke-dasharray:3 3}";
       style.textContent += ".abg-exclusion-boundary{fill:rgba(180,35,24,.08);stroke:#b42318;stroke-width:1.8;stroke-dasharray:3 2;pointer-events:none}.abg-exclusion-label{fill:#b42318;font-size:8px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px;pointer-events:none}";
-      style.textContent += ".behavior-ops{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px;margin-top:12px}.behavior-funnel,.behavior-quality{border:1px solid #d8e5e8;border-radius:7px;background:#fff;padding:13px}.behavior-ops-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.behavior-ops-head h3{font-size:13px;margin:0}.behavior-funnel-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.behavior-stage{position:relative;border:1px solid #dce7eb;border-radius:6px;padding:9px;background:#f9fbfc}.behavior-stage small,.quality-item small{display:block;color:#687587;font-size:10px}.behavior-stage b{display:block;margin-top:4px;font-size:18px;color:#173045}.behavior-stage.block b{color:#b42318}.behavior-stage.alert b{color:#a35b00}.quality-list{display:grid;gap:7px}.quality-item{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #edf2f4;padding-bottom:7px}.quality-item:last-child{border-bottom:0;padding-bottom:0}.quality-item b{font-size:11px}.event-row{cursor:pointer}.event-row.selected{background:#eef8f6;box-shadow:inset 3px 0 #147f73}.behavior-evidence{margin-top:10px;border:1px solid #cde2e6;border-radius:6px;background:#f8fbfc;padding:11px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.behavior-evidence[hidden]{display:none}.behavior-evidence small{display:block;color:#687587;font-size:10px;margin-bottom:3px}.behavior-evidence b{display:block;overflow-wrap:anywhere;font-size:11px}@media(max-width:980px){.behavior-ops{grid-template-columns:1fr}.behavior-funnel-grid,.behavior-evidence{grid-template-columns:repeat(2,minmax(0,1fr))}}";
+      style.textContent += "#abg-behavior-orbit .abg-orbit-layout{display:block}#abg-behavior-orbit .abg-orbit-box{width:100%}.behavior-kpi[role=button]{cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}.behavior-kpi[role=button]:hover,.behavior-kpi[role=button]:focus{border-color:#147f73;box-shadow:0 0 0 2px rgba(20,127,115,.1);outline:0;transform:translateY(-1px)}.behavior-scope-note{display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:#687587;font-size:10px}.behavior-modal-backdrop{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;padding:28px;background:rgba(12,25,35,.5)}.behavior-modal-backdrop[hidden]{display:none!important}.behavior-modal{width:min(1050px,96vw);max-height:88vh;overflow:auto;background:#fff;border:1px solid #d8e5e8;border-radius:7px;box-shadow:0 24px 70px rgba(9,30,45,.25)}.behavior-modal-body{padding:16px}.behavior-modal-summary{display:grid;grid-template-columns:repeat(3,minmax(140px,1fr));gap:9px;margin-bottom:14px}.behavior-modal-summary>div{padding:10px;border:1px solid #d8e5e8;border-radius:5px;background:#f8fbfc}.behavior-modal-summary small{display:block;color:#687587;margin-bottom:3px}.event-row{cursor:pointer}.event-row.selected{background:#eef8f6;box-shadow:inset 3px 0 #147f73}.behavior-evidence{margin-top:10px;border:1px solid #cde2e6;border-radius:6px;background:#f8fbfc;padding:11px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.behavior-evidence[hidden]{display:none}.behavior-evidence small{display:block;color:#687587;font-size:10px;margin-bottom:3px}.behavior-evidence b{display:block;overflow-wrap:anywhere;font-size:11px}@media(max-width:980px){.behavior-evidence,.behavior-modal-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}";
       style.textContent += ".policy-rule-actions{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap}.policy-rule-actions .btn{padding:5px 8px}.policy-rule-editor{border-top:1px solid #e4eaee;background:#fbfdfd}.policy-rule-editor-actions{display:flex;align-items:center;gap:8px;margin-top:10px}.policy-row{grid-template-columns:minmax(220px,.9fr) minmax(360px,1.5fr) 78px auto!important}.policy-row .policy-sub{margin-bottom:4px}.policy-baseline-summary{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:10px}.policy-rule-groups{display:grid;gap:6px;min-width:0}.policy-rule-groups>div{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}.policy-rule-groups .badge{max-width:190px;overflow:hidden;text-overflow:ellipsis}.policy-domain-table{margin-top:14px}@media(max-width:1100px){.policy-row{grid-template-columns:1fr 110px!important}.policy-rule-groups,.policy-rule-actions{grid-column:1/-1}.policy-rule-actions{justify-content:flex-start}.policy-baseline-summary{grid-template-columns:repeat(3,minmax(110px,1fr))}}";
+      style.textContent += ".abg-orbit-box{min-height:480px!important;background:radial-gradient(circle at 50% 48%,#fbffff 0,#f3f9fa 56%,#e8f1f4 100%)!important}.abg-orbit-box svg{height:480px!important;min-height:480px!important;touch-action:auto!important;cursor:default!important}.abg-node-label{paint-order:stroke;stroke:#f7fbfc;stroke-width:3px;stroke-linejoin:round}.abg-orbit-box:fullscreen{isolation:isolate;background:radial-gradient(circle at 50% 48%,rgba(14,58,75,.96),#07151f 48%,#03090f 100%)!important;padding:22px}.abg-orbit-box:fullscreen:before{content:\"\";position:absolute;inset:0;z-index:0;background-image:linear-gradient(rgba(75,221,255,.065) 1px,transparent 1px),linear-gradient(90deg,rgba(75,221,255,.065) 1px,transparent 1px),radial-gradient(circle at 50% 50%,rgba(0,230,214,.12),transparent 56%);background-size:32px 32px,32px 32px,100% 100%}.abg-orbit-box:fullscreen svg{position:relative;z-index:1;height:calc(100vh - 44px)!important;min-height:0!important;filter:drop-shadow(0 0 14px rgba(27,218,224,.12))}.abg-orbit-box:fullscreen .abg-ring{stroke:#315668}.abg-orbit-box:fullscreen .abg-axis,.abg-orbit-box:fullscreen .abg-sector-edge{stroke:#23485a}.abg-orbit-box:fullscreen .abg-label,.abg-orbit-box:fullscreen .abg-level-label,.abg-orbit-box:fullscreen .abg-node-label{fill:#bdebf3;stroke:#07151f}.abg-orbit-box:fullscreen .abg-boundary{stroke:#19e5ce;fill:rgba(25,229,206,.08);filter:drop-shadow(0 0 5px rgba(25,229,206,.5))}.abg-orbit-box:fullscreen .abg-task-boundary{stroke:#ffad38;fill:rgba(255,173,56,.09);filter:drop-shadow(0 0 5px rgba(255,173,56,.5))}.abg-orbit-box:fullscreen .abg-domain-label rect,.abg-orbit-box:fullscreen .abg-boundary-key rect{fill:rgba(5,20,30,.9);stroke:#315668}.abg-orbit-box:fullscreen .abg-boundary-key text{fill:#bdebf3}.abg-orbit-box:fullscreen .abg-fullscreen{background:#102c3a;border-color:#3f8196;color:#d9fbff}.abg-orbit-box:fullscreen .abg-node:hover,.abg-orbit-box:fullscreen .abg-node.selected{stroke:#e8ffff;filter:drop-shadow(0 0 8px rgba(69,239,244,.9))}@media(max-width:780px){.abg-orbit-box,.abg-orbit-box svg{height:390px!important;min-height:390px!important}}";
+      style.textContent += ".abg-orbit-box:fullscreen .abg-boundary{stroke-width:1.35!important;filter:none!important}.abg-orbit-box:fullscreen .abg-task-boundary{stroke-width:1.45!important;filter:none!important}.abg-orbit-box:fullscreen .abg-boundary-halo{display:none!important}.abg-orbit-box:fullscreen .abg-node,.abg-orbit-box:fullscreen .abg-node:hover,.abg-orbit-box:fullscreen .abg-node.selected{filter:none!important;stroke-width:1.7!important}.intent-analysis-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 0}.intent-analysis-grid section{border:1px solid #d8e5e8;border-radius:6px;background:#f8fbfc;padding:11px;min-width:0}.intent-analysis-grid h3{margin:7px 0;font-size:12px;line-height:1.55;overflow-wrap:anywhere}.intent-analysis-grid p{margin:4px 0 0;color:#687587;font-size:10px;line-height:1.5}.intent-analysis-grid .intent-prediction{grid-column:1/-1}.intent-section-label{color:#147f73;font-size:10px;font-weight:700;text-transform:uppercase}.intent-chip-row,.intent-chain{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.intent-chip-row span,.intent-chain span{display:inline-flex;align-items:center;gap:5px;border:1px solid #cde2e6;border-radius:4px;background:#fff;padding:4px 6px;font-size:10px}.intent-chain b{display:inline-flex;width:19px;height:19px;align-items:center;justify-content:center;border-radius:50%;background:#e5f4f0;color:#147f73;font-size:9px}.disposition-legend{display:flex;justify-content:flex-end;gap:12px;color:#687587;font-size:10px}.disposition-legend span{display:flex;align-items:center;gap:4px}.disposition-legend i{width:8px;height:8px;border-radius:2px}.disposition-chart{height:164px;display:flex;align-items:flex-end;gap:16px;padding:15px 8px 24px;border-bottom:1px solid #d8e5e8}.disposition-column{height:100%;flex:1;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;position:relative;cursor:help}.disposition-stack{width:min(42px,78%);display:flex;flex-direction:column;border-radius:4px 4px 0 0;overflow:hidden;min-height:3px}.disposition-stack i{display:block;width:100%}.disposition-column small{position:absolute;bottom:-20px;color:#687587}.disposition-total{font-size:9px;color:#526879;margin-bottom:3px}.disposition-legend .allow,.disposition-stack .allow{background:#8fd3c5}.disposition-legend .hold,.disposition-stack .hold{background:#efc56e}.disposition-legend .block,.disposition-stack .block{background:#df827c}.disposition-note{margin:10px 0 0;color:#687587;font-size:10px}.abg-atom-create-row{display:grid;grid-template-columns:minmax(220px,.35fr) minmax(0,1fr);gap:14px;align-items:end;margin-top:12px;padding:11px;border:1px solid #d8e5e8;border-radius:6px;background:#f8fbfc}.abg-atom-create-row p{margin:3px 0 0;color:#687587;font-size:10px}.abg-atom-create-row .abg-lattice-actions{margin:0}.abg-orbit-selection-detail{margin-top:9px}@media(max-width:900px){.intent-analysis-grid{grid-template-columns:1fr}.abg-atom-create-row{grid-template-columns:1fr}}";
+      style.textContent += ".intent-reasoning-chain{display:grid;padding:5px 0;container-type:inline-size}.intent-reasoning-chain section{display:grid;grid-template-columns:minmax(110px,135px) minmax(0,1fr);gap:12px;padding:11px 0;border-bottom:1px solid #e3ecef}.intent-reasoning-chain section:last-child{border-bottom:0}.intent-stage{display:flex;align-items:center;gap:8px;color:#173045;font-size:11px;font-weight:700}.intent-stage>b{display:inline-flex;width:25px;height:25px;flex:0 0 25px;align-items:center;justify-content:center;border-radius:50%;background:#e5f4f0;color:#147f73;font-size:9px}.intent-stage-body{min-width:0}.intent-stage-body>strong{display:block;font-size:11px;line-height:1.55;overflow-wrap:anywhere}.intent-stage-body>small{display:block;margin-top:4px;color:#687587;line-height:1.5;overflow-wrap:anywhere}.intent-chain-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:5px}.intent-atom-step{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:6px;align-items:center;text-align:left;border:1px solid #cbdce1;border-radius:5px;background:#fff;padding:6px;min-width:0;max-width:none;width:100%;color:#173045;cursor:pointer}.intent-atom-step:hover,.intent-atom-step.active{border-color:#147f73;box-shadow:0 0 0 2px rgba(20,127,115,.12);background:#f2faf8}.intent-atom-step>b{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;border-radius:50%;background:#edf4f6;color:#526879;font-size:9px}.intent-atom-step span{min-width:0}.intent-atom-step strong,.intent-atom-step small{display:block;overflow-wrap:anywhere}.intent-atom-step strong{font-size:9px}.intent-atom-step small{margin-top:2px;color:#687587;font-size:8px;line-height:1.35}.intent-atom-step em{font-style:normal;white-space:nowrap}.intent-empty{padding:8px;border:1px dashed #cbdce1;border-radius:5px;color:#687587;font-size:10px}@container(max-width:560px){.intent-reasoning-chain section{grid-template-columns:1fr}.intent-chain-list{grid-template-columns:1fr}}@media(max-width:820px){.intent-reasoning-chain section{grid-template-columns:1fr}.intent-chain-list{grid-template-columns:1fr}}";
       document.head.appendChild(style);
     }
     if (!document.getElementById("aidr-abg-boundary-style")) {
@@ -73,7 +77,17 @@
       var button = event.target.closest && event.target.closest("[data-abg-fullscreen]");
       if (!button) return;
       var target = button.closest(".abg-orbit-box") || document.querySelector(button.getAttribute("data-abg-fullscreen"));
-      if (target && target.requestFullscreen) target.requestFullscreen().catch(function () {});
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(function () {});
+      } else if (target && target.requestFullscreen) {
+        target.requestFullscreen().catch(function () {});
+      }
+    });
+    document.addEventListener("fullscreenchange", function () {
+      document.querySelectorAll("[data-abg-fullscreen]").forEach(function (button) {
+        button.textContent = document.fullscreenElement ? "\u9000\u51fa\u5168\u5c4f" : "\u5168\u5c4f";
+        button.setAttribute("aria-pressed", String(Boolean(document.fullscreenElement)));
+      });
     });
   }
   function ensureBoundaryStrip(panel) {
@@ -141,28 +155,13 @@
 
   function renderDataHealth(errors) {
     var banner = document.getElementById("aidr-data-health");
-    if (!banner) {
-      banner = document.createElement("div");
-      banner.id = "aidr-data-health";
-      banner.setAttribute("role", "alert");
-      banner.style.cssText = "display:none;margin:12px 30px 0;padding:10px 13px;border:1px solid #e6b8b4;border-left:4px solid #b42318;border-radius:6px;background:#fff4f3;color:#7a271f;font-size:12px;line-height:1.45";
-      var topbar = document.querySelector(".topbar");
-      if (topbar && topbar.parentNode) topbar.parentNode.insertBefore(banner, topbar.nextSibling);
-    }
+    if (banner) banner.remove();
     var failed = Object.keys(errors || {});
-    if (!failed.length) {
-      banner.style.display = "none";
-      banner.textContent = "";
-      document.documentElement.setAttribute("data-aidr-data", "live");
-      return;
-    }
-    banner.style.display = "block";
-    var retained = state.hasSuccessfulDataset && state.lastSuccessfulRefresh
-      ? "\u5df2\u4fdd\u7559 " + new Date(state.lastSuccessfulRefresh).toLocaleString() + " \u7684\u6700\u540e\u6210\u529f\u6570\u636e\uff08\u5df2\u8fc7\u671f\uff09"
-      : "\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u6210\u529f\u6570\u636e";
-    banner.textContent = "\u6570\u636e\u670d\u52a1\u4e0d\u53ef\u7528\uff1a" + failed.join("\u3001") + "\u3002" + retained +
-      "\uff0c\u8bf7\u5728\u201c\u7cfb\u7edf\u201d\u9875\u68c0\u67e5 User-mode Agent \u548c Agent API\u3002";
-    document.documentElement.setAttribute("data-aidr-data", "degraded");
+    var quality = state.dataQuality || {};
+    document.documentElement.setAttribute(
+      "data-aidr-data",
+      failed.length || quality.status === "degraded" || quality.status === "no_data" || quality.stale ? "degraded" : "live"
+    );
   }
 
   function text(selector, value, root) {
@@ -227,9 +226,15 @@
     var stats = status.stats || {};
     var discovery = status.agentDiscovery || {};
     var activeAgents = discovery.activeCount || state.agents.filter(function (agent) { return agent.status === "active"; }).length;
-    var totalEvents = state.eventStats && state.eventStats.total || state.events.length;
-    var blocks = stats.block || 0;
-    var alerts = stats.alert || 0;
+    var eventStats = state.eventStats || {};
+    var windowVerdicts = eventStats.byWindowVerdict || [];
+    var verdictCount = function (name) {
+      var row = windowVerdicts.find(function (item) { return String(item.verdict).toLowerCase() === name; });
+      return Number(row && (row.c || row.count) || 0);
+    };
+    var totalEvents = eventStats.windowTotal != null ? Number(eventStats.windowTotal) : state.events.length;
+    var blocks = verdictCount("block");
+    var alerts = verdictCount("alert") + verdictCount("hold");
     setMetric("overview", 0, activeAgents, "实时发现与进程心跳", "up");
     setMetric("overview", 1, totalEvents, "已关联 Session 和 Trace", "up");
     setMetric("overview", 2, blocks + alerts, "阻断 " + blocks + " · 告警 " + alerts, blocks ? "bad" : "up");
@@ -237,6 +242,33 @@
     text("#page-overview .sidebar-foot", "");
     var top = document.querySelector("#page-overview .panel-head h2");
     if (top) top.textContent = "Agent 行为风险姿态";
+    renderDispositionTrend();
+  }
+
+  function renderDispositionTrend() {
+    var host = document.querySelector("[data-disposition-trend]");
+    if (!host) return;
+    var buckets = [0, 4, 8, 12, 16, 20].map(function (hour) { return { hour: hour, allow: 0, hold: 0, block: 0 }; });
+    var rows = state.eventStats && state.eventStats.byHourVerdict || [];
+    rows.forEach(function (event) {
+      var stamp = new Date(event.hour);
+      if (!Number.isFinite(stamp.getTime())) return;
+      var bucket = buckets[Math.min(5, Math.floor(stamp.getHours() / 4))];
+      var verdict = String(event.verdict || "allow").toLowerCase();
+      var count = Number(event.c || event.count || 0);
+      if (verdict === "block" || verdict === "deny") bucket.block += count;
+      else if (verdict === "alert" || verdict === "hold" || verdict.indexOf("approval") >= 0) bucket.hold += count;
+      else bucket.allow += count;
+    });
+    var max = Math.max.apply(Math, buckets.map(function (item) { return item.allow + item.hold + item.block; }).concat([1]));
+    host.innerHTML = '<div class="disposition-legend"><span><i class="allow"></i>放行</span><span><i class="hold"></i>待审批 / 告警</span><span><i class="block"></i>阻断</span></div><div class="disposition-chart">' +
+      buckets.map(function (item) {
+        var total = item.allow + item.hold + item.block;
+        var height = Math.max(5, Math.round(total / max * 100));
+        var part = function (value) { return total ? Math.max(2, value / total * 100) : 0; };
+        var label = String(item.hour).padStart(2, "0") + ":00";
+        return '<button type="button" class="disposition-column" title="' + label + '：放行 ' + item.allow + '，待审批/告警 ' + item.hold + '，阻断 ' + item.block + '"><span class="disposition-total">' + total + '</span><span class="disposition-stack" style="height:' + height + '%"><i class="block" style="height:' + part(item.block) + '%"></i><i class="hold" style="height:' + part(item.hold) + '%"></i><i class="allow" style="height:' + part(item.allow) + '%"></i></span><small>' + label + '</small></button>';
+      }).join("") + '</div><p class="disposition-note">用于识别处置量突增和阻断时段；柱高表示决策总量，颜色表示最终处置结果。</p>';
   }
 
   function renderAgents() {
@@ -342,7 +374,6 @@
 
   function renderSessionDetail(session) {
     text("#sessionHeading", agentName(session.agent) + " · " + (session.promptPreview || session.prompt || "未提供 Prompt"));
-    text("#sessionPrompt", session.rawPrompt || session.prompt || session.promptPreview || "未提供 Prompt");
     var verdict = String(session.verdict || session.riskLevel || "allow").toLowerCase();
     var verdictElement = document.getElementById("sessionVerdict");
     if (verdictElement) {
@@ -351,8 +382,119 @@
       verdictElement.className = "badge " + verdictClass(verdict);
     }
     renderPromptHistory(session);
+    renderIntentAnalysis(session, abgSessionData);
+    renderEvidencePanel(session, abgSessionData);
     renderSessionTaskPolicy({ effectivePolicy: session.effectivePolicy || {}, taskAuthorization: session.taskAuthorization || null, taskBoundary: session.taskBoundary || null });
     renderSessionOrbit(session);
+  }
+
+  function intentAtomIds(data) {
+    return (data && data.predictedPath || []).map(function (item) { return item.atomId || item.id || item.atom; }).filter(Boolean);
+  }
+
+  function renderIntentAnalysis(session, orbit) {
+    var existingChain = document.querySelector("#page-sessions .intent-reasoning-chain");
+    var body = existingChain && existingChain.closest(".panel-body");
+    var panel = body && body.closest(".panel");
+    if (!body) {
+      panel = Array.prototype.slice.call(document.querySelectorAll("#page-sessions .panel")).find(function (item) {
+        var heading = item.querySelector(".panel-head h2");
+        return heading && heading.textContent.trim() === "实时意图分析";
+      });
+      body = panel && panel.querySelector(".panel-body");
+    }
+    if (!body) return;
+    var data = orbit || {};
+    var evidence = data.intentEvidence || {};
+    var assessment = data.analysisAssessment || {};
+    var path = data.predictedPath || [];
+    var intent = data.intent || session.intent || {};
+    var goal = evidence.goal || intent.summary || session.intentSummary || session.promptPreview || "等待结构化意图分析";
+    var resources = evidence.resources || {};
+    var resourceValues = []
+      .concat(resources.readPaths || [], resources.writePaths || [], resources.allowedDomains || [], resources.allowedMcpTools || [])
+      .slice(0, 8);
+    var risk = evidence.risk || {};
+    var confidence = Math.round(Number(assessment.analysisConfidence || Math.max(Number(risk.localConfidence || 0), Number(risk.semanticConfidence || 0))) * 100);
+    var coverage = Math.round(Number(assessment.predictionCoverage || 0) * 100);
+    var missing = assessment.missingEvidence || [];
+    var chain = path.length ? path.map(function (item, index) {
+      var status = item.policyStatus === "deny" ? "block" : item.policyStatus === "require_approval" ? "hold" : "allow";
+      var statusText = item.policyStatus === "deny" ? "不允许" : item.policyStatus === "require_approval" ? "需审批" : "允许";
+      return '<button type="button" class="intent-atom-step" data-intent-atom="' + escapeHtml(item.atomId) + '"><b>' + String(index + 1).padStart(2, "0") + '</b><span><strong>' + escapeHtml(item.atomId) + '</strong><small>' + escapeHtml(item.reason || "未提供推导理由") + '</small></span><em class="badge ' + status + '">' + statusText + '</em></button>';
+    }).join("") : '<div class="intent-empty">等待 Policy Orbit 生成可解释预测链</div>';
+    body.innerHTML =
+      '<div class="intent-reasoning-chain">' +
+      '<section><div class="intent-stage"><b>01</b><span>任务目标与约束</span></div><div class="intent-stage-body"><strong>' + escapeHtml(goal) + '</strong><small>证据：Prompt 指纹 ' + escapeHtml(String(evidence.promptSha256 || "未采集").slice(0, 16)) + ' · 来源 ' + escapeHtml(evidence.source || "待分析") + '</small></div></section>' +
+      '<section><div class="intent-stage"><b>02</b><span>资源与能力推导</span></div><div class="intent-stage-body"><strong>' + escapeHtml(resourceValues.join(" · ") || "未识别到额外资源范围") + '</strong><small>从任务对象、Agent 能力声明和允许资源共同推导。</small></div></section>' +
+      '<section><div class="intent-stage"><b>03</b><span>预测行为链</span></div><div class="intent-stage-body intent-chain-list">' + chain + '</div></section>' +
+      '<section><div class="intent-stage"><b>04</b><span>策略边界验证</span></div><div class="intent-stage-body"><strong>允许 ' + (data.taskAuthorization?.allowedAtoms || []).length + ' · 需审批 ' + (data.taskAuthorization?.conditionalAtoms || []).length + ' · 不允许 ' + (data.taskAuthorization?.deniedAtoms || []).length + '</strong><small>逐个预测原子与组织 Baseline、会话任务边界进行交集校验。</small></div></section>' +
+      '<section><div class="intent-stage"><b>05</b><span>分析结论</span></div><div class="intent-stage-body"><strong>分析置信度 ' + (confidence || 0) + '% · 预测解释覆盖 ' + coverage + '%</strong><small>' + (missing.length ? "缺失证据：" + escapeHtml(missing.join("、")) : "证据链完整；置信度仍表示推断可靠程度，并非行为必然发生。") + '</small></div></section>' +
+      '</div>';
+    body.querySelectorAll("[data-intent-atom]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        abgSetAtomSelection(button.getAttribute("data-intent-atom"));
+        body.querySelectorAll("[data-intent-atom]").forEach(function (item) { item.classList.toggle("active", item === button); });
+      });
+    });
+    if (!panel.__orbitSelectionBound) {
+      panel.__orbitSelectionBound = true;
+      window.addEventListener("aidr-abg-node-selected", function (event) {
+        var atomId = String(event.detail && (event.detail.atomId || event.detail.id) || "").toUpperCase();
+        if (!atomId) return;
+        body.querySelectorAll("[data-intent-atom]").forEach(function (item) {
+          item.classList.toggle("active", String(item.getAttribute("data-intent-atom")).toUpperCase() === atomId);
+        });
+      });
+    }
+  }
+
+  function renderEvidencePanel(session, orbit) {
+    var aside = document.querySelector("#page-sessions .evidence");
+    var content = aside && aside.querySelector("[data-evidence-content]");
+    if (!content) return;
+    aside.__sessionEvidence = { session: session || {}, orbit: orbit || {} };
+    if (!aside.__evidenceBound) {
+      aside.__evidenceBound = true;
+      aside.querySelectorAll("[data-evidence-tab]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          aside.querySelectorAll("[data-evidence-tab]").forEach(function (item) { item.classList.toggle("active", item === button); });
+          aside.dataset.evidenceTab = button.getAttribute("data-evidence-tab");
+          renderEvidencePanel(aside.__sessionEvidence.session, aside.__sessionEvidence.orbit);
+        });
+      });
+    }
+    var tab = aside.dataset.evidenceTab || "summary";
+    var data = orbit || {};
+    var predicted = intentAtomIds(data);
+    var trace = data.decisionTrace || [];
+    var effective = data.effectivePolicy || session.effectivePolicy || {};
+    var source = data.intentEvidence && data.intentEvidence.source || "local_rules";
+    var assessment = data.analysisAssessment || {};
+    var trustBadge = aside.querySelector(".panel-head .badge");
+    if (trustBadge) {
+      var integrity = assessment.evidenceIntegrity || "insufficient";
+      trustBadge.textContent = integrity === "complete" ? "证据完整" : integrity === "partial" ? "证据部分完整" : "证据不足";
+      trustBadge.className = "badge " + (integrity === "complete" ? "allow" : integrity === "partial" ? "hold" : "block");
+    }
+    var block = function (label, value) { return '<div class="evidence-block"><div class="evidence-label">' + label + '</div><div class="evidence-value">' + value + '</div></div>'; };
+    if (tab === "evidence") {
+      content.innerHTML = block("预测行为原子", predicted.length ? predicted.map(escapeHtml).join("<br>") : "暂无预测链") +
+        block("任务边界依据", escapeHtml(data.taskBoundary && data.taskBoundary.source || "session.effectivePolicy")) +
+        block("采集与分析来源", escapeHtml(source) + "<br>" + escapeHtml(session.captureSource || "Agent hook + Endpoint sensor")) +
+        block("Prompt 指纹", escapeHtml(String(data.intentEvidence && data.intentEvidence.promptSha256 || "-").slice(0, 24)));
+    } else if (tab === "decision") {
+      content.innerHTML = block("最终判定", '<span class="badge ' + verdictClass(session.verdict || session.riskLevel || "allow") + '">' + escapeHtml(String(session.verdict || "ALLOW").toUpperCase()) + '</span>') +
+        block("策略版本", escapeHtml(effective.version || state.policy && state.policy.version || "-")) +
+        block("Decision Trace", trace.length ? trace.map(function (step, index) { return (index + 1) + ". " + escapeHtml(step.name || step.stage || step.rule || "decision") + " · " + escapeHtml(step.result || step.status || step.action || "observed"); }).join("<br>") : "暂无结构化决策链") +
+        block("边界结果", data.outOfOrganization ? "超出组织边界" : data.outOfTask ? "超出任务边界" : "组织边界与任务边界内");
+    } else {
+      content.innerHTML = block("Agent", escapeHtml(agentName(session.agent))) +
+        block("Session / Trace", escapeHtml(session.id || "-") + "<br>" + escapeHtml(session.traceId || data.traceId || "-")) +
+        block("意图结论", escapeHtml(data.intentEvidence && data.intentEvidence.goal || data.intent && data.intent.summary || session.intentSummary || session.promptPreview || "-")) +
+        block("Policy Orbit", "预测 " + predicted.length + " 个行为原子 · " + (data.outOfTask ? "存在任务边界偏移" : "任务边界内")) +
+        block("分析可信度逻辑", "证据完整度 " + Math.round(Number(assessment.evidenceCompleteness || 0) * 100) + "%<br>规则/模型置信度 " + Math.round(Number(assessment.analysisConfidence || 0) * 100) + "%<br>预测解释覆盖 " + Math.round(Number(assessment.predictionCoverage || 0) * 100) + "%");
+    }
   }
 
   function renderSessionTaskPolicy(snapshot) {
@@ -527,26 +669,6 @@
 
   function abgAttachSvgInteractions(svg, items) {
     if (!svg) return;
-    var dragging = false;
-    var last = null;
-    if (svg.dataset.interactive !== "1") svg.addEventListener("wheel", function (event) {
-      event.preventDefault();
-      abgViewport.scale = Math.max(.65, Math.min(2.2, abgViewport.scale + (event.deltaY < 0 ? .1 : -.1)));
-      abgApplyViewport(svg);
-    }, { passive: false });
-    if (svg.dataset.interactive !== "1") svg.addEventListener("pointerdown", function (event) {
-      if (event.target.closest && event.target.closest(".abg-node")) return;
-      dragging = true; last = { x: event.clientX, y: event.clientY }; svg.setPointerCapture?.(event.pointerId);
-    });
-    if (svg.dataset.interactive !== "1") svg.addEventListener("pointermove", function (event) {
-      if (!dragging || !last) return;
-      abgViewport.x += (event.clientX - last.x) * .65;
-      abgViewport.y += (event.clientY - last.y) * .65;
-      last = { x: event.clientX, y: event.clientY };
-      abgApplyViewport(svg);
-    });
-    if (svg.dataset.interactive !== "1") svg.addEventListener("pointerup", function (event) { dragging = false; last = null; svg.releasePointerCapture?.(event.pointerId); });
-    if (svg.dataset.interactive !== "1") svg.addEventListener("dblclick", function () { abgViewport = { x: 0, y: 0, scale: 1 }; abgApplyViewport(svg); });
     svg.dataset.interactive = "1";
     svg.querySelectorAll(".abg-node").forEach(function (node) {
       node.addEventListener("click", function (event) {
@@ -868,7 +990,7 @@
         var selected = item.selected || atom.selected;
         var atomLabel = String(id).split(".").pop().replace(/_/g, " ");
         var denseLabelStride = Math.max(4, Math.ceil(definitions.length / 8));
-        var showLabel = !densePermission || selected || atom.hits > 0 || item.hits > 0 || (organizationOutside && index % denseLabelStride === 0);
+        var showLabel = !densePermission || selected || Number(atom.hits || item.hits || 0) > 0 || (organizationOutside && index % Math.max(10, denseLabelStride) === 0);
         var verdict = organizationOutside || taskOutside ? "block" : (item.verdict || "allow");
         output.push('<g class="abg-node ' + stateClass + '" data-abg-index="' + index + '" transform="translate(' + point.x.toFixed(1) + ' ' + point.y.toFixed(1) + ')"><circle class="abg-node-hit" r="7"/><circle r="' + (showLabel ? 5.5 : 4) + '"/><title>' + escapeHtml(id + " · L" + point.level + " · " + (atom.description || "行为原子") + " · " + verdict + " · " + stateClass) + '</title>' + (showLabel ? '<text class="abg-node-label" x="8" y="-6">' + escapeHtml(atomLabel) + '</text>' : '') + '</g>');
       });
@@ -885,14 +1007,14 @@
         return { item: item, point: point, index: index, repeatIndex: sameAtomBefore };
       });
       if (mode === "aggregate") {
-        var aggregateStride = Math.max(1, Math.ceil(points.length / 18));
+        var aggregateStride = Math.max(1, Math.ceil(points.length / 12));
         points.forEach(function (entry) {
           var item = entry.item;
           var aggregateScope = abgEventBoundaryScope(item);
           var organizationOutside = aggregateScope === "organization";
           var taskOutside = aggregateScope === "task";
           var stateClass = organizationOutside ? "organization" : taskOutside ? "task" : "within";
-          var showLabel = points.length <= 28 || entry.index % aggregateStride === 0 || Number(item.hits || 0) >= 3 || organizationOutside;
+          var showLabel = points.length <= 18 || entry.index % aggregateStride === 0 || Number(item.hits || 0) >= 5;
           var label = String(item.atomId || "").split(".").pop().replace(/_/g, " ");
           var hitLabel = Number(item.hits || 0) ? " · " + Number(item.hits || 0) + " 次命中" : "";
           output.push('<g class="abg-node aggregate ' + stateClass + '" data-abg-index="' + entry.index + '" transform="translate(' + entry.point.x.toFixed(1) + ' ' + entry.point.y.toFixed(1) + ')"><circle class="abg-node-hit" r="7"/><circle r="' + (Number(item.hits || 0) >= 3 ? 6.5 : 4.5) + '"/><title>' + escapeHtml(String(item.atomId || "行为原子") + hitLabel + " · " + (organizationOutside ? "组织边界外" : taskOutside ? "任务边界外" : "边界内")) + '</title>' + (showLabel ? '<text class="abg-node-label" x="8" y="-6">' + escapeHtml(label) + '</text>' : '') + '</g>');
@@ -906,7 +1028,7 @@
             var eventScope = abgEventBoundaryScope(entry.item);
             var organizationRisk = eventScope === "organization";
             var taskRisk = eventScope === "task";
-            var risk = organizationRisk || taskRisk;
+            var risk = organizationRisk || taskRisk || (mode === "actual" && entry.item.alignment === "unexpected");
             var request = mode === "request";
             var actualPath = mode === "actual" && !risk && !request;
             var edgeClass = request ? "abg-request" : (!actualPath && risk) ? "abg-risk-boundary" : actualPath ? "abg-actual-path" : "abg-path";
@@ -920,8 +1042,11 @@
       points.forEach(function (entry) {
         var item = entry.item;
         var stateClass = mode === "request" ? "request" : abgEventBoundaryScope(item) === "organization" ? "organization" : abgEventBoundaryScope(item) === "task" ? "task" : mode === "predicted" ? "predicted" : mode === "actual" ? "actual" : "within";
+        if (mode === "actual" && item.alignment === "unexpected") stateClass += " divergence";
+        if (mode === "actual" && (item.alignment === "matched" || item.alignment === "reordered")) stateClass += " aligned";
+        if (mode === "predicted" && item.alignment === "observed") stateClass += " observed";
         var current = entry.index === points.length - 1 ? " current" : "";
-        var densePath = points.length > 16;
+        var densePath = points.length > 12;
         var showPathLabel = !densePath && entry.repeatIndex === 0;
         var hitSuffix = Number(item.hitCount || 1) > 1 ? " · " + Number(item.hitCount) + " 次" : "";
         output.push('<g class="abg-node ' + stateClass + current + '" data-abg-index="' + entry.index + '" transform="translate(' + entry.point.x.toFixed(1) + ' ' + entry.point.y.toFixed(1) + ')"><circle class="abg-node-hit" r="7"/><circle r="' + (densePath ? 3.5 : 6) + '"/><title>' + escapeHtml(String(item.atomId || "行为原子") + hitSuffix + " · " + String(item.verdict || item.state || "unknown") + " · " + (item.boundaryScope || "within")) + '</title>' + (showPathLabel ? '<text class="abg-node-label" x="8" y="-7">' + escapeHtml(String(item.atomId || "").split(".").pop().replace(/_/g, " ")) + '</text>' : '') + '</g>');
@@ -955,6 +1080,18 @@
     abgAttachSvgInteractions(svg, interactionItems);
   }
 
+  function renderSharedOrbit(svg, items, mode, boundary, catalog, decisionTrace) {
+    var runtime = window.AIDR_ABCG;
+    var viewModel = runtime?.createViewModel ? runtime.createViewModel({
+      items: items,
+      mode: mode,
+      boundary: boundary,
+      catalog: catalog,
+      decisionTrace: decisionTrace
+    }) : { items: items || [], mode: mode, boundary: boundary || {}, catalog: catalog || [], decisionTrace: decisionTrace };
+    abgRenderSvg(svg, viewModel.items, viewModel.mode, viewModel.boundary, viewModel.catalog, viewModel.decisionTrace);
+  }
+
   function ensureBehaviorOrbitPanel() {
     var page = document.getElementById("page-behavior");
     if (!page) return null;
@@ -965,13 +1102,16 @@
     panel = document.createElement("div");
     panel.id = "abg-behavior-orbit";
     panel.className = "panel abg-orbit-panel";
-    panel.innerHTML = '<div class="panel-head"><div><h2>' + ABG_VIEW_TITLE + '</h2><p>聚合当前窗口已命中的行为原子；红色节点表示越过组织边界。</p></div><span class="badge info">ABCG AGGREGATE</span></div><div class="panel-body"><div class="abg-controls"><select class="select" id="abgBehaviorAgent"><option value="">所有 Agent</option></select><select class="select" id="abgBehaviorWindow"><option value="24">最近 24 小时</option><option value="168">最近 7 天</option></select><span class="small muted" id="abgBehaviorUpdated">等待数据</span></div><div class="abg-orbit-layout"><div><div class="abg-orbit-box"><svg id="abgBehaviorSvg" viewBox="0 0 520 300" role="img" aria-label="' + ABG_VIEW_TITLE + '"></svg></div><div class="abg-legend"><span><i style="background:#177f72"></i>组织边界内</span><span><i style="background:#c27600"></i>任务边界外</span><span><i style="background:#b42318"></i>组织边界外</span><span><i style="background:#2463c4"></i>策略空间</span></div></div><div class="abg-summary"><div class="abg-stat"><small>当前 Agent</small><strong id="abgBehaviorAgentName">全部 Agent</strong></div><div class="abg-stat"><small>行为事件</small><strong id="abgBehaviorEventTotal">0</strong></div><div class="abg-stat warn"><small>任务边界偏移</small><strong id="abgBehaviorTaskDrift">0</strong></div><div class="abg-stat danger"><small>组织边界越界</small><strong id="abgBehaviorOrgDrift">0</strong></div></div></div><div class="table-wrap" style="margin-top:14px"><table class="abg-matrix"><thead><tr><th>Agent</th><th>意图</th><th>计划</th><th>工具 / MCP</th><th>身份</th><th>数据</th><th>记忆</th><th>执行</th><th>总体</th></tr></thead><tbody id="abgBehaviorMatrix"></tbody></table></div></div>';
+    panel.innerHTML = '<div class="panel-head"><div><h2>' + ABG_VIEW_TITLE + '</h2><p>聚合当前窗口命中的行为原子类型；节点大小表示命中强度，红色节点表示越过组织边界。</p></div><span class="badge info">ABCG AGGREGATE</span></div><div class="panel-body"><div class="abg-controls"><select class="select" id="abgBehaviorAgent"><option value="">所有 Agent</option></select><select class="select" id="abgBehaviorWindow"><option value="24">最近 24 小时</option><option value="168">最近 7 天</option></select><span class="small muted" id="abgBehaviorUpdated">等待数据</span></div><div class="abg-quality-strip" id="abgBehaviorQuality"></div><div class="abg-orbit-layout"><div><div class="abg-orbit-box"><svg id="abgBehaviorSvg" viewBox="0 0 520 300" role="img" aria-label="' + ABG_VIEW_TITLE + '"></svg></div><div class="abg-legend"><span><i style="background:#177f72"></i>组织边界内</span><span><i style="background:#c27600"></i>任务边界外</span><span><i style="background:#b42318"></i>组织边界外</span><span><i style="background:#2463c4"></i>策略空间</span></div></div></div><div class="table-wrap" style="margin-top:14px"><table class="abg-matrix"><thead><tr><th>Agent</th><th>意图</th><th>计划</th><th>工具 / MCP</th><th>身份</th><th>数据</th><th>记忆</th><th>执行</th><th>总体</th></tr></thead><tbody id="abgBehaviorMatrix"></tbody></table></div></div>';
     panel.querySelector(".abg-orbit-box").insertAdjacentHTML("afterbegin", '<button class="btn abg-fullscreen" data-abg-fullscreen title="全屏查看行为风险轨迹">全屏</button>');
     ensureAbgStyles();
-    panel.querySelector(".panel-body").insertAdjacentHTML("beforeend", '<div class="abg-node-detail">选择轨迹节点查看行为原子、边界和事件证据。</div><div class="table-wrap" style="margin-top:10px"><table class="abg-catalog-table"><thead><tr><th>序号</th><th>行为原子</th><th>来源</th><th>决策</th><th>边界</th><th>时间</th></tr></thead><tbody id="abgBehaviorTimeline"></tbody></table></div>');
-    kpis.insertAdjacentElement("afterend", panel);
-    var oldMatrix = page.querySelector(".behavior-kpis + .panel:not(#abg-behavior-orbit)");
-    if (oldMatrix && oldMatrix.querySelector("table.matrix")) oldMatrix.classList.add("abg-old-graph-hidden");
+    panel.querySelector(".panel-body").insertAdjacentHTML("beforeend", '<div class="abg-node-detail">选择节点查看行为原子、边界、命中次数和事件证据。逐条审计记录在下方“实时行为事件”中查看。</div>');
+    var behaviorLayout = page.querySelector(".behavior-layout");
+    if (behaviorLayout) behaviorLayout.insertAdjacentElement("afterend", panel);
+    else kpis.insertAdjacentElement("afterend", panel);
+    var oldMatrixTable = page.querySelector("table.matrix");
+    var oldMatrix = oldMatrixTable && oldMatrixTable.closest(".panel");
+    if (oldMatrix) oldMatrix.remove();
     panel.querySelector("#abgBehaviorAgent").addEventListener("change", function () { abgSelectedAgent = this.value; renderAbgBehavior(); });
     panel.querySelector("#abgBehaviorWindow").addEventListener("change", function () { refresh(); });
     return panel;
@@ -1052,15 +1192,9 @@
     var fullPath = chosen ? (chosen.path || []) : agents.reduce(function (all, agent) { return all.concat(agent.path || []); }, []).sort(function (a, b) {
       return Number(a.sequence || 0) - Number(b.sequence || 0) || String(a.timestamp || "").localeCompare(String(b.timestamp || ""));
     });
-    var graphLimit = 160;
-    var path = fullPath.length > graphLimit ? fullPath.slice(-graphLimit) : fullPath;
     var total = chosen ? chosen.total || 0 : agents.reduce(function (sum, agent) { return sum + Number(agent.total || 0); }, 0);
     var orgDrift = chosen ? chosen.outOfOrganization || 0 : agents.reduce(function (sum, agent) { return sum + Number(agent.outOfOrganization || 0); }, 0);
     var taskDrift = chosen ? chosen.outOfTask || 0 : agents.reduce(function (sum, agent) { return sum + Number(agent.outOfTask || 0); }, 0);
-    panel.querySelector("#abgBehaviorAgentName").textContent = chosen ? agentName(chosen.agentId) : "全部 Agent";
-    panel.querySelector("#abgBehaviorEventTotal").textContent = String(total);
-    panel.querySelector("#abgBehaviorTaskDrift").textContent = String(taskDrift);
-    panel.querySelector("#abgBehaviorOrgDrift").textContent = String(orgDrift);
     var catalog = data.catalog || [];
     var behaviorBoundary = data.boundary || {};
     var behaviorOutsideCount = catalog.filter(function (atom) { return abgOrganizationAtomState(atom, behaviorBoundary).scope === "organization"; }).length;
@@ -1074,8 +1208,17 @@
       if (behaviorState) { behaviorState.textContent = "\u5df2\u540c\u6b65"; behaviorState.className = "badge allow"; }
     }
     var hitSpace = abgBuildCompleteHitSpace(data, chosen);
-    panel.querySelector("#abgBehaviorUpdated").textContent = "已关联 " + agents.length + " 个 Agent · " + (data.windowHours || 24) + " 小时 · 聚合 " + hitSpace.length + " 个命中行为原子 / " + fullPath.length + " 个事件";
-    abgRenderSvg(panel.querySelector("#abgBehaviorSvg"), hitSpace, "aggregate", data.boundary || {}, catalog);
+    var atomHits = hitSpace.reduce(function (sum, item) { return sum + Number(item.hits || item.hitCount || 0); }, 0);
+    panel.querySelector("#abgBehaviorUpdated").textContent = "已关联 " + agents.length + " 个 Agent · " + (data.windowHours || 24) + " 小时 · " + total + " 个 Agent 事件映射为 " + atomHits + " 次原子命中 / " + hitSpace.length + " 种原子类型 · 任务偏移 " + taskDrift + " · 组织越界 " + orgDrift;
+    var quality = data.dataQuality || state.dataQuality || {};
+    var identity = quality.identity || {};
+    var qualityPanel = panel.querySelector("#abgBehaviorQuality");
+    if (qualityPanel) {
+      var rate = function (value) { return Math.round(Number(value || 0) * 100) + "%"; };
+      var qualityClass = quality.status === "healthy" ? "allow" : quality.status === "no_data" ? "neutral" : "hold";
+      qualityPanel.innerHTML = '<span class="badge ' + qualityClass + '">数据质量 ' + escapeHtml(String(quality.status || "unknown").toUpperCase()) + '</span><span>Agent 关联 ' + rate(identity.agentLinkRate) + '</span><span>会话关联 ' + rate(identity.sessionLinkRate) + '</span><span>进程关联 ' + rate(identity.processLinkRate) + '</span><span>任务关联 ' + rate(identity.taskLinkRate) + '</span>' + (quality.stale ? '<strong>数据已过期</strong>' : "");
+    }
+    renderSharedOrbit(panel.querySelector("#abgBehaviorSvg"), hitSpace, "aggregate", data.boundary || {}, catalog);
     var domainMap = {};
     catalog.forEach(function (atom) { domainMap[atom.id] = atom.domain; });
     panel.querySelector("#abgBehaviorMatrix").innerHTML = agents.map(function (agent) {
@@ -1084,12 +1227,6 @@
       var riskClass = risk === "HIGH" ? "block" : risk === "MEDIUM" ? "hold" : "allow";
       return '<tr class="' + (String(agent.agentId) === String(abgSelectedAgent) ? "selected" : "") + '" data-abg-agent="' + escapeHtml(agent.agentId) + '"><td><strong>' + escapeHtml(agentName(agent.agentId)) + '</strong><small class="policy-sub">' + escapeHtml(agent.agentId) + '</small></td>' + abgDomains.map(function (domain) { var value = counts[domain[0]] || 0; var cls = value >= 4 ? "high" : value >= 2 ? "medium" : "low"; return '<td><span class="abg-cell ' + cls + '">' + value + '</span></td>'; }).join("") + '<td>' + badge(risk, riskClass) + '</td></tr>';
     }).join("") || '<tr><td colspan="9" class="empty">当前窗口暂无行为原子事件</td></tr>';
-    var timeline = panel.querySelector("#abgBehaviorTimeline");
-    if (timeline) timeline.innerHTML = path.slice(-40).map(function (item, index) {
-      var scope = item.boundaryScope || "within";
-      var decisionClass = verdictClass(item.verdict);
-      return '<tr><td>' + escapeHtml(item.sequence || index + 1) + '</td><td><strong>' + escapeHtml(item.atomId || "UNMAPPED.UNKNOWN") + '</strong></td><td>' + escapeHtml(item.source || "-") + '</td><td>' + badge(item.verdict || "allow", decisionClass) + '</td><td>' + escapeHtml(scope === "organization" ? "组织边界外" : scope === "task" ? "任务边界外" : scope === "within" ? "边界内" : "未归属") + '</td><td>' + escapeHtml(formatTime(item.timestamp)) + '</td></tr>';
-    }).join("") || '<tr><td colspan="6" class="empty">当前窗口暂无行为原子事件</td></tr>';
     panel.querySelectorAll("[data-abg-agent]").forEach(function (row) { row.addEventListener("click", function () { abgSelectedAgent = row.getAttribute("data-abg-agent"); renderAbgBehavior(); }); });
   }
 
@@ -1100,13 +1237,11 @@
     if (panel) return panel;
     var oldGraph = page.querySelector(".mini-graph");
     if (oldGraph) { var oldPanel = oldGraph.closest(".panel"); if (oldPanel) oldPanel.classList.add("abg-old-graph-hidden"); }
-    var anchor = page.querySelector(".drift") || page.querySelector(".session-center");
-    if (!anchor) return null;
+    var center = page.querySelector(".session-center");
+    if (!center) return null;
     panel = document.createElement("div");
     panel.className = "panel abg-session-orbit";
-    var evidenceMarkup = '<div class="abg-intent-evidence" data-abg-intent-evidence><div class="abg-intent-evidence-head"><strong>意图证据</strong><span class="badge neutral" data-abg-intent-source>等待会话分析</span></div><div class="abg-intent-evidence-grid"><div class="abg-intent-evidence-item"><b>目标</b><span data-abg-intent-goal>-</span></div><div class="abg-intent-evidence-item"><b>风险</b><span data-abg-intent-risk>-</span></div><div class="abg-intent-evidence-item"><b>分析置信度</b><span data-abg-intent-confidence>-</span></div><div class="abg-intent-evidence-item"><b>Prompt 指纹</b><span data-abg-intent-hash>-</span></div></div><div class="abg-intent-evidence-chips" data-abg-intent-capabilities></div></div>';
     panel.innerHTML = '<div class="panel-head"><div><h2>' + ABG_VIEW_TITLE + '</h2><p>组织边界、任务边界、预测行为链和实际行为链保持同一坐标系展示。</p></div><span class="badge info">SESSION ORBIT</span></div><div class="panel-body"><div class="abg-orbit-tabs"><button class="active" data-abg-mode="permission">权限空间</button><button data-abg-mode="predicted">预测行为链</button><button data-abg-mode="actual">实际行为链</button></div><div class="abg-orbit-box"><svg id="abgSessionSvg" viewBox="0 0 520 300" role="img" aria-label="' + ABG_VIEW_TITLE + '"></svg></div><div class="abg-orbit-note" id="abgSessionNote">正在加载当前会话的组织边界、任务边界和实际行为证据。</div></div>';
-    panel.querySelector(".panel-body").insertAdjacentHTML("afterbegin", evidenceMarkup);
     panel.querySelector(".abg-orbit-box").insertAdjacentHTML("afterbegin", '<button class="btn abg-fullscreen" data-abg-fullscreen title="全屏查看权限空间">全屏</button>');
     panel.querySelector(".abg-orbit-note").insertAdjacentHTML("afterend", '<div class="abg-space-legend"><span><i style="background:#e65da4"></i>\\u7ec4\\u7ec7\\u8fb9\\u754c</span><span><i style="background:#ff8a1e"></i>\\u4efb\\u52a1\\u8fb9\\u754c</span><span><i style="background:#147f73"></i>\\u5b9e\\u9645\\u884c\\u4e3a\\u94fe</span><span><i style="background:#b42318"></i>\\u8d8a\\u754c\\u88ab\\u963b\\u65ad</span></div>');
     panel.querySelector(".panel-head").insertAdjacentHTML("beforeend", '<button class="btn abg-motion-toggle" data-abg-motion-toggle aria-pressed="true">\\u52a8\\u6001\\uff1a\\u5f00</button>');
@@ -1114,7 +1249,7 @@
     panel.querySelectorAll("[data-abg-motion-toggle]").forEach(function (button) { button.textContent = "\u52a8\u6001\uff1a\u5f00"; });
     ensureAbgStyles();
     panel.querySelector(".panel-body").insertAdjacentHTML("beforeend", '<div class="abg-replay"><button class="btn" data-abg-replay="prev">上一步</button><button class="btn primary" data-abg-replay="play">播放行为链</button><button class="btn" data-abg-replay="next">下一步</button><input type="range" min="0" max="0" value="0" data-abg-replay="range"><span class="small muted" data-abg-replay="status">未加载</span></div><div class="abg-node-detail">选择图谱节点查看行为原子和证据。</div><div class="table-wrap" style="margin-top:10px"><table class="abg-catalog-table"><thead><tr><th>Decision Trace</th><th>来源</th><th>状态</th><th>原因</th></tr></thead><tbody data-abg-trace></tbody></table></div>');
-    anchor.insertAdjacentElement("afterend", panel);
+    center.appendChild(panel);
     panel.querySelectorAll("[data-abg-mode]").forEach(function (button) { button.addEventListener("click", function () { abgSessionMode = button.getAttribute("data-abg-mode"); abgPlaybackIndex = 0; panel.querySelectorAll("[data-abg-mode]").forEach(function (item) { item.classList.toggle("active", item === button); }); abgRenderSessionOrbit(panel); }); });
     panel.querySelectorAll("[data-abg-replay]").forEach(function (button) { button.addEventListener("click", function () { var action = button.getAttribute("data-abg-replay"); if (action === "play") { if (abgPlaybackTimer) { clearInterval(abgPlaybackTimer); abgPlaybackTimer = null; button.textContent = "播放行为链"; } else { button.textContent = "暂停行为链"; abgPlaybackTimer = setInterval(function () { var max = (abgSessionData?.actualPath || []).length - 1; abgPlaybackIndex = Math.min(max, abgPlaybackIndex + 1); abgRenderSessionOrbit(panel); if (abgPlaybackIndex >= max) { clearInterval(abgPlaybackTimer); abgPlaybackTimer = null; button.textContent = "重新播放"; } }, 700); } } else { var max = Math.max(0, (abgSessionData?.actualPath || []).length - 1); abgPlaybackIndex = action === "prev" ? Math.max(0, abgPlaybackIndex - 1) : Math.min(max, abgPlaybackIndex + 1); abgRenderSessionOrbit(panel); } }); });
     return panel;
@@ -1123,27 +1258,9 @@
   function abgRenderSessionOrbit(panel) {
     if (!panel || !abgSessionData) return;
     renderSessionTaskPolicy(abgSessionData);
-    var evidencePanel = panel.querySelector("[data-abg-intent-evidence]");
-    if (evidencePanel) {
-      var evidence = abgSessionData.intentEvidence || abgSessionData.intent?.intentEvidence || null;
-      var intent = abgSessionData.intent || {};
-      var sourceLabel = { hybrid: "规则 + 语义模型", semantic_model: "语义模型", local_rules: "本地规则" };
-      var source = evidence?.source || "unavailable";
-      var sourceBadge = evidencePanel.querySelector("[data-abg-intent-source]");
-      var goal = evidence?.goal || intent.summary || "未生成结构化目标";
-      var risk = evidence?.risk || {};
-      var confidenceValues = [risk.localConfidence, risk.semanticConfidence].filter(function (value) { return Number(value) > 0; });
-      var confidence = confidenceValues.length ? Math.round(Math.max.apply(Math, confidenceValues) * 100) + "%" : "未提供";
-      var hash = evidence?.promptSha256 ? String(evidence.promptSha256).slice(0, 12) + "…" : "未提供";
-      if (sourceBadge) { sourceBadge.textContent = sourceLabel[source] || "未采集证据"; sourceBadge.className = "badge " + (source === "hybrid" || source === "semantic_model" ? "allow" : "neutral"); }
-      var fieldValues = { "[data-abg-intent-goal]": goal, "[data-abg-intent-risk]": (risk.level || "unknown") + (risk.score !== null && risk.score !== undefined ? " · " + risk.score : ""), "[data-abg-intent-confidence]": confidence, "[data-abg-intent-hash]": hash };
-      Object.keys(fieldValues).forEach(function (selector) { var field = evidencePanel.querySelector(selector); if (field) field.textContent = String(fieldValues[selector]); });
-      var chips = evidencePanel.querySelector("[data-abg-intent-capabilities]");
-      if (chips) {
-        var capabilities = evidence ? Object.keys(evidence.requestedCapabilities || {}).filter(function (key) { return evidence.requestedCapabilities[key]; }) : [];
-        chips.innerHTML = capabilities.length ? capabilities.map(function (key) { var granted = evidence.grantedCapabilities?.[key] === true; return '<span class="abg-intent-evidence-chip">' + escapeHtml(key) + " · " + (granted ? "已授权" : "待阻断/审批") + "</span>"; }).join("") : '<span class="abg-intent-evidence-chip">未发现新增能力请求</span>';
-      }
-    }
+    var currentSession = (state.sessions || []).find(function (session) { return String(session.id) === String(abgSessionData.sessionId); }) || {};
+    renderIntentAnalysis(currentSession, abgSessionData);
+    renderEvidencePanel(currentSession, abgSessionData);
     if (abgSessionData.unavailable) {
       panel.querySelector("#abgSessionSvg").innerHTML = '<text x="260" y="145" text-anchor="middle" fill="#687587" font-size="12">Orbit 数据暂不可用</text><text x="260" y="166" text-anchor="middle" fill="#687587" font-size="10">请检查会话关联或 API 状态</text>';
       panel.querySelector("#abgSessionNote").textContent = abgSessionData.message || "会话 Orbit API 未返回数据";
@@ -1153,13 +1270,22 @@
     var fullActual = abgSessionData.actualPath || [];
     var actualItems = abgPlaybackIndex > 0 ? fullActual.slice(0, abgPlaybackIndex + 1) : fullActual;
     var items = mode === "predicted" ? (abgSessionData.predictedPath || []) : mode === "actual" ? actualItems : [];
-    abgRenderSvg(panel.querySelector("#abgSessionSvg"), items, mode, { organization: abgSessionData.organizationBoundary || {}, task: abgSessionData.taskBoundary || {} }, state.behaviorAtoms?.catalog || [], abgSessionData.decisionTrace);
-    var note = mode === "permission" ? "组织边界为全局策略上限；任务边界来自当前会话的最小权限策略。" : mode === "predicted" ? "预测行为链来自 Prompt、Agent 能力和工具声明，尚未代表已发生副作用。" : "实际行为链来自 Hook、MCP、文件、网络和进程事件；越过组织边界的行为在图中显示 BLOCKED。";
+    renderSharedOrbit(panel.querySelector("#abgSessionSvg"), items, mode, { organization: abgSessionData.organizationBoundary || {}, task: abgSessionData.taskBoundary || {} }, state.behaviorAtoms?.catalog || [], abgSessionData.decisionTrace);
+    var alignment = abgSessionData.pathAlignment || {};
+    var note = mode === "permission"
+      ? "组织边界为全局策略上限；任务边界由本会话获准的预测行为原子生成。需审批和拒绝候选不进入任务权限空间。"
+      : mode === "predicted"
+        ? "预测链仅显示已获当前任务策略授权的 " + (abgSessionData.predictedPath || []).length + " 个原子；另有 " + (abgSessionData.permissionRequestPath || []).length + " 个需审批、" + (abgSessionData.rejectedPredictionPath || []).length + " 个被拒绝候选。"
+        : "实际链共 " + fullActual.length + " 步，其中 " + Number(alignment.matched || 0) + " 步与预测链对应，覆盖率 " + Math.round(Number(alignment.coverage || 0) * 100) + "%；红色节点表示非预测行为。";
     panel.querySelector("#abgSessionNote").textContent = note;
     var range = panel.querySelector('[data-abg-replay="range"]');
     var status = panel.querySelector('[data-abg-replay="status"]');
     if (range) { range.max = String(Math.max(0, fullActual.length - 1)); range.value = String(abgPlaybackIndex > 0 ? Math.min(abgPlaybackIndex, Math.max(0, fullActual.length - 1)) : Math.max(0, fullActual.length - 1)); range.disabled = mode !== "actual"; range.oninput = function () { abgPlaybackIndex = Number(range.value); abgRenderSessionOrbit(panel); }; }
-    if (status) status.textContent = mode === "actual" ? ((actualItems.length) + " / " + fullActual.length + " 个实际行为") : mode === "predicted" ? ((abgSessionData.predictedPath || []).length + " 个预测原子") : "组织权限空间";
+    if (status) status.textContent = mode === "actual"
+      ? (actualItems.length + " / " + fullActual.length + " 个实际行为 · 匹配 " + Number(alignment.matched || 0))
+      : mode === "predicted"
+        ? ((abgSessionData.predictedPath || []).length + " 个已授权预测原子")
+        : "组织与会话任务权限空间";
     var trace = panel.querySelector("[data-abg-trace]");
     if (trace) {
       var traceItems = abgSessionData.decisionTrace?.steps || abgSessionData.decisionTrace?.decisionPath || abgSessionData.decisionTrace?.trace || [];
@@ -1182,7 +1308,7 @@
       if (requestSequence !== abgSessionRequestSequence) return;
       if (data && data.sessionId && String(data.sessionId) !== requestedSessionId) return;
       abgSessionData = data;
-      if (["permission", "predicted", "actual"].indexOf(abgSessionMode) < 0) abgSessionMode = "permission";
+      abgSessionMode = "predicted";
       abgPlaybackIndex = 0;
       panel.querySelectorAll("[data-abg-mode]").forEach(function (button) { button.classList.toggle("active", button.getAttribute("data-abg-mode") === abgSessionMode); });
       abgRenderSessionOrbit(panel);
@@ -1241,10 +1367,23 @@
          boundaryStyle.textContent = ".abg-boundary-strip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 17px;border-bottom:1px solid #dbe7ea;background:#f7fbfb;font-size:11px}.abg-boundary-strip strong{color:#173045}.abg-boundary-strip [data-abg-boundary-summary]{color:#147f73}.abg-boundary-strip [data-abg-boundary-meta]{flex:1;min-width:220px}.abg-boundary-strip .badge{white-space:nowrap}";
          panelHead.appendChild(boundaryStyle);
        }
-     }
-     if (panelHead && !panel.querySelector("[data-abg-boundary-strip]")) panelHead.insertAdjacentHTML("afterend", '<div class="abg-boundary-strip" data-abg-boundary-strip><strong>\u7ec4\u7ec7\u6743\u9650\u8fb9\u754c</strong><span data-abg-boundary-summary>\u6b63\u5728\u540c\u6b65\u57fa\u7840\u7b56\u7565</span><span class="small muted" data-abg-boundary-meta></span><span class="badge allow" data-abg-boundary-state>\u5df2\u540c\u6b65</span></div>');
+    }
+    if (panelHead && !panel.querySelector("[data-abg-boundary-strip]")) panelHead.insertAdjacentHTML("afterend", '<div class="abg-boundary-strip" data-abg-boundary-strip><strong>\u7ec4\u7ec7\u6743\u9650\u8fb9\u754c</strong><span data-abg-boundary-summary>\u6b63\u5728\u540c\u6b65\u57fa\u7840\u7b56\u7565</span><span class="small muted" data-abg-boundary-meta></span><span class="badge allow" data-abg-boundary-state>\u5df2\u540c\u6b65</span></div>');
     panel.querySelector(".abg-orbit-box").insertAdjacentHTML("afterbegin", '<button class="btn abg-fullscreen" data-abg-fullscreen title="全屏查看组织权限空间">全屏</button>');
-    panel.querySelector(".panel-body").insertAdjacentHTML("beforeend", '<div class="abg-node-detail">选择权限空间中的行为原子查看当前组织边界与命中状态。</div>');
+    var policyBody = panel.querySelector(".panel-body");
+    var latticeActions = panel.querySelector(".abg-lattice-actions");
+    var latticeDetail = panel.querySelector("#abgLatticeDetail");
+    if (orbitPane && latticeDetail) {
+      latticeDetail.classList.add("abg-orbit-selection-detail");
+      orbitPane.appendChild(latticeDetail);
+    }
+    if (policyBody && latticeActions) {
+      var atomCreate = document.createElement("div");
+      atomCreate.className = "abg-atom-create-row";
+      atomCreate.innerHTML = '<div><strong>新增行为原子</strong><p>新增后进入统一原子目录，策略授权变化将实时刷新组织权限边界。</p></div>';
+      atomCreate.appendChild(latticeActions);
+      policyBody.appendChild(atomCreate);
+    }
     var versionPanel = page.querySelector(".version-row")?.closest(".panel");
     if (versionPanel) versionPanel.insertAdjacentElement("beforebegin", panel); else page.appendChild(panel);
     panel.querySelector("#abgAtomAdd").addEventListener("click", function () {
@@ -1406,7 +1545,7 @@
        var outside = organizationState.scope === "organization";
        return { atomId: atom.id, level: atom.baseLevel, requiredLevel: organizationState.requiredLevel || atom.baseLevel, hits: stats.hits || 0, boundaryScope: organizationState.scope, outOfOrganization: outside, organizationReason: organizationState.reason, verdict: outside ? "block" : "allow", sequence: index + 1, timestamp: stats.lastSeen };
     });
-    abgRenderSvg(panel.querySelector("#abgPolicySvg"), policyItems, "permission", data.boundary || {}, data.catalog || []);
+    renderSharedOrbit(panel.querySelector("#abgPolicySvg"), policyItems, "permission", data.boundary || {}, data.catalog || []);
     var query = String(panel.querySelector("#abgAtomSearch")?.value || "").toLowerCase();
     var rows = (data.catalog || []).filter(function (atom) { return !query || String(atom.id + " " + atom.description + " " + atom.domain).toLowerCase().indexOf(query) >= 0; });
     renderAbgCapabilityGrid(panel, data, query);
@@ -1421,52 +1560,89 @@
     }
   }
 
-  function ensureBehaviorOperations() {
+  function behaviorMetricSnapshot() {
+    var data = state.behaviorAtoms || {};
+    var agents = Array.isArray(data.agents) ? data.agents : [];
+    var atomStats = (Array.isArray(data.stats) ? data.stats : []).filter(function (item) { return Number(item.hits || 0) > 0; });
+    return {
+      data: data,
+      agents: agents,
+      atomStats: atomStats,
+      events: agents.reduce(function (sum, agent) { return sum + Number(agent.total || 0); }, 0),
+      uniqueAtoms: atomStats.length,
+      atomHits: atomStats.reduce(function (sum, item) { return sum + Number(item.hits || 0); }, 0),
+      alerts: atomStats.reduce(function (sum, item) { return sum + Number(item.alert || item.hold || 0); }, 0),
+      blocks: atomStats.reduce(function (sum, item) { return sum + Number(item.block || 0); }, 0)
+    };
+  }
+
+  function ensureBehaviorMetricModal() {
     var page = document.getElementById("page-behavior");
-    var kpis = page && page.querySelector(".behavior-kpis");
-    if (!kpis) return null;
-    var ops = page.querySelector("[data-behavior-ops]");
-    if (!ops) {
-      kpis.insertAdjacentHTML("afterend", '<div class="behavior-ops" data-behavior-ops><section class="behavior-funnel"><div class="behavior-ops-head"><h3>行为处置漏斗</h3><span class="small muted">观测不等于执行</span></div><div class="behavior-funnel-grid"><div class="behavior-stage"><small>已观测</small><b data-behavior-observed>0</b></div><div class="behavior-stage"><small>策略允许</small><b data-behavior-allowed>0</b></div><div class="behavior-stage alert"><small>告警 / 审批</small><b data-behavior-alerted>0</b></div><div class="behavior-stage block"><small>已阻断</small><b data-behavior-blocked>0</b></div></div></section><section class="behavior-quality"><div class="behavior-ops-head"><h3>数据可靠性</h3><span class="badge neutral" data-behavior-quality-state>检查中</span></div><div class="quality-list"><div class="quality-item"><small>遥测新鲜度</small><b data-behavior-freshness>-</b></div><div class="quality-item"><small>Agent 归属率</small><b data-behavior-attribution>-</b></div><div class="quality-item"><small>采集完整性</small><b data-behavior-completeness>-</b></div></div></section></div>');
-      ops = page.querySelector("[data-behavior-ops]");
+    if (!page) return null;
+    var modal = document.getElementById("behaviorMetricModal");
+    if (modal) return modal;
+    page.insertAdjacentHTML("beforeend", '<div class="behavior-modal-backdrop" id="behaviorMetricModal" hidden><section class="behavior-modal" role="dialog" aria-modal="true" aria-labelledby="behaviorMetricTitle"><div class="panel-head"><div><h2 id="behaviorMetricTitle">统计详情</h2><p id="behaviorMetricDescription">当前 Agent 行为窗口的可审计明细。</p></div><button class="btn" type="button" data-behavior-modal-close>关闭</button></div><div class="behavior-modal-body"><div class="behavior-modal-summary" id="behaviorMetricSummary"></div><div class="table-wrap"><table class="table"><thead id="behaviorMetricHead"></thead><tbody id="behaviorMetricRows"></tbody></table></div></div></section></div>');
+    modal = document.getElementById("behaviorMetricModal");
+    modal.querySelector("[data-behavior-modal-close]").addEventListener("click", function () { modal.hidden = true; });
+    modal.addEventListener("click", function (event) { if (event.target === modal) modal.hidden = true; });
+    return modal;
+  }
+
+  function openBehaviorMetric(metric) {
+    var modal = ensureBehaviorMetricModal();
+    if (!modal) return;
+    var snapshot = behaviorMetricSnapshot();
+    var quality = snapshot.data.mappingQuality || {};
+    var title = "";
+    var description = "";
+    var head = "";
+    var rows = "";
+    if (metric === "events") {
+      title = "Agent 行为事件详情";
+      description = "仅统计已可靠归属到 Agent 的事件；未归属主机遥测不混入本页。";
+      head = "<tr><th>Agent</th><th>行为事件</th><th>唯一原子</th><th>任务偏移</th><th>组织越界</th></tr>";
+      rows = snapshot.agents.map(function (agent) {
+        return "<tr><td><strong>" + escapeHtml(agentName(agent.agentId)) + "</strong></td><td>" + Number(agent.total || 0) + "</td><td>" + Object.keys(agent.atoms || {}).length + "</td><td>" + Number(agent.outOfTask || 0) + "</td><td>" + Number(agent.outOfOrganization || 0) + "</td></tr>";
+      }).join("");
+    } else {
+      var filtered = snapshot.atomStats.slice().sort(function (a, b) { return Number(b.hits || 0) - Number(a.hits || 0); });
+      if (metric === "alerts") filtered = filtered.filter(function (item) { return Number(item.alert || item.hold || 0) > 0; });
+      if (metric === "blocks") filtered = filtered.filter(function (item) { return Number(item.block || 0) > 0; });
+      title = metric === "uniqueAtoms" ? "命中原子类型详情" : metric === "atomHits" ? "原子命中次数详情" : metric === "alerts" ? "告警 / 审批详情" : "强制阻断详情";
+      description = metric === "uniqueAtoms"
+        ? "命中原子类型按 atomId 去重；同一原子被多次执行仍只计为一种。"
+        : metric === "atomHits"
+          ? "一个原始事件可映射为多个行为原子，因此原子命中次数可能高于事件数。"
+          : "按最终行为原子决策聚合，可在实时事件中继续查看证据。";
+      head = "<tr><th>行为原子</th><th>行为域</th><th>命中</th><th>允许</th><th>告警 / 审批</th><th>阻断</th><th>最近命中</th></tr>";
+      rows = filtered.map(function (item) {
+        return "<tr><td><strong>" + escapeHtml(item.atomId || item.id) + "</strong></td><td>" + escapeHtml(item.domain || abgAtomDomain(item.atomId || item.id)) + "</td><td>" + Number(item.hits || 0) + "</td><td>" + Number(item.allow || 0) + "</td><td>" + Number(item.alert || item.hold || 0) + "</td><td>" + Number(item.block || 0) + "</td><td>" + escapeHtml(formatTime(item.lastSeen)) + "</td></tr>";
+      }).join("");
     }
-    return ops;
+    modal.querySelector("#behaviorMetricTitle").textContent = title;
+    modal.querySelector("#behaviorMetricDescription").textContent = description;
+    modal.querySelector("#behaviorMetricSummary").innerHTML = '<div><small>Agent 事件</small><strong>' + snapshot.events + '</strong></div><div><small>命中类型 / 原子目录</small><strong>' + snapshot.uniqueAtoms + " / " + ((snapshot.data.catalog || []).length || 0) + '</strong></div><div><small>映射覆盖率</small><strong>' + Math.round(Number(quality.mappingCoverage || 0) * 100) + '%</strong></div>';
+    modal.querySelector("#behaviorMetricHead").innerHTML = head;
+    modal.querySelector("#behaviorMetricRows").innerHTML = rows || '<tr><td colspan="7" class="empty">当前窗口暂无匹配数据</td></tr>';
+    modal.hidden = false;
   }
 
   function renderBehavior() {
-    var stats = state.eventStats || {};
-    var byVerdict = {};
-    (stats.byVerdict || []).forEach(function (row) { byVerdict[row.verdict] = row.c || 0; });
-    var values = [stats.total || state.events.length, 0, byVerdict.block || 0, byVerdict.alert || 0, 0];
+    var snapshot = behaviorMetricSnapshot();
+    var values = [snapshot.events, snapshot.uniqueAtoms, snapshot.atomHits, snapshot.alerts, snapshot.blocks];
     values.forEach(function (value, index) {
       var element = document.querySelectorAll("#page-behavior .behavior-kpi strong")[index];
       if (element) element.textContent = String(value);
     });
-    var ops = ensureBehaviorOperations();
-    if (ops) {
-      var observed = Number(stats.total || state.events.length || 0);
-      var atomData = state.behaviorAtoms || {};
-      var mappingQuality = atomData.mappingQuality || {};
-      var generatedAt = atomData.generatedAt ? new Date(atomData.generatedAt) : null;
-      var ageSeconds = generatedAt && !Number.isNaN(generatedAt.getTime()) ? Math.max(0, Math.round((Date.now() - generatedAt.getTime()) / 1000)) : null;
-      var attributed = state.events.filter(function (event) { return Boolean(eventAgentId(event) || event.sessionId || event.session_id); }).length;
-      var attribution = Number.isFinite(Number(mappingQuality.attributionRate))
-        ? Math.round(Number(mappingQuality.attributionRate) * 100)
-        : (state.events.length ? Math.round(attributed * 100 / state.events.length) : 100);
-      var mappingCoverage = Number.isFinite(Number(mappingQuality.mappingCoverage))
-        ? Math.round(Number(mappingQuality.mappingCoverage) * 100)
-        : 100;
-      text("[data-behavior-observed]", observed, ops);
-      text("[data-behavior-allowed]", Number(byVerdict.allow || 0), ops);
-      text("[data-behavior-alerted]", Number(byVerdict.alert || byVerdict.hold || 0), ops);
-      text("[data-behavior-blocked]", Number(byVerdict.block || 0), ops);
-      text("[data-behavior-freshness]", ageSeconds === null ? "未知" : ageSeconds + "s", ops);
-      text("[data-behavior-attribution]", attribution + "%", ops);
-      text("[data-behavior-completeness]", atomData.sourceTruncated ? mappingCoverage + "% / 已截断" : mappingCoverage + "%", ops);
-      var quality = ops.querySelector("[data-behavior-quality-state]");
-      var healthy = ageSeconds !== null && ageSeconds < 30 && attribution >= 90 && mappingCoverage >= 95 && !atomData.sourceTruncated;
-      if (quality) { quality.textContent = healthy ? "可信" : "需关注"; quality.className = "badge " + (healthy ? "allow" : "hold"); }
-    }
+    var redundantOps = document.querySelector("#page-behavior [data-behavior-ops]");
+    if (redundantOps) redundantOps.remove();
+    document.querySelectorAll("#page-behavior .behavior-kpi[data-behavior-metric]").forEach(function (card) {
+      if (card.dataset.metricBound) return;
+      card.dataset.metricBound = "true";
+      function activate() { openBehaviorMetric(card.getAttribute("data-behavior-metric")); }
+      card.addEventListener("click", activate);
+      card.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); } });
+    });
     var list = document.getElementById("eventList");
     if (!list) return;
     var eventSubtitle = document.querySelector("#page-behavior .behavior-layout .panel-head p");
@@ -1735,8 +1911,22 @@
     if (page) navigate(page);
   }
 
+  function initializePageToolbars() {
+    document.querySelectorAll(".page").forEach(function (page) {
+      var toolbar = page.querySelector(":scope > .page-head .toolbar");
+      if (toolbar) pageToolbars[page.id.replace(/^page-/, "")] = toolbar;
+    });
+  }
+
+  function syncTopbarToolbar(page) {
+    var slot = document.getElementById("topContextTools");
+    if (!slot) return;
+    while (slot.firstChild) slot.removeChild(slot.firstChild);
+    if (pageToolbars[page]) slot.appendChild(pageToolbars[page]);
+  }
+
   function navigate(page) {
-    var titleMap = { overview: "安全概述", sessions: "意图分析", agents: "Agent发现", policy: "策略中心", behavior: "行为监控", semantic: "语义模型", system: "系统" };
+    var titleMap = { overview: "\u5b89\u5168\u6982\u8ff0", sessions: "\u610f\u56fe\u5206\u6790", agents: "Agent\u53d1\u73b0", policy: "\u7b56\u7565\u4e2d\u5fc3", behavior: "\u884c\u4e3a\u76d1\u63a7", semantic: "\u8bed\u4e49\u6a21\u578b", system: "\u7cfb\u7edf" };
     document.querySelectorAll(".nav button").forEach(function (item) {
       item.classList.toggle("active", item.getAttribute("data-page") === page);
     });
@@ -1744,6 +1934,7 @@
       item.classList.toggle("active", item.id === "page-" + page);
     });
     text("#topTitle", titleMap[page] || "AIDR");
+    syncTopbarToolbar(page);
     if (window.location.hash !== "#" + page) window.history.replaceState(null, "", "#" + page);
   }
 
@@ -1760,9 +1951,10 @@
       api("/api/semantic/local-config"),
       api("/api/semantic/config"),
       api("/api/behavior-atoms?windowHours=24&pathLimit=1000&occurrenceLimit=1000&sourceLimit=5000"),
-      api("/api/diagnostics/performance")
+      api("/api/diagnostics/performance"),
+      api("/api/diagnostics/data-quality?limit=1000")
     ]).then(function (results) {
-      var names = ["\u7cfb\u7edf\u72b6\u6001", "Agent \u53d1\u73b0", "\u4f1a\u8bdd", "\u884c\u4e3a\u4e8b\u4ef6", "\u4e8b\u4ef6\u7edf\u8ba1", "\u7b56\u7565", "\u672c\u5730\u8bed\u4e49\u6a21\u578b", "\u5916\u90e8\u8bed\u4e49\u6a21\u578b", "\u884c\u4e3a\u539f\u5b50", "\u6027\u80fd\u8bca\u65ad"];
+      var names = ["\u7cfb\u7edf\u72b6\u6001", "Agent \u53d1\u73b0", "\u4f1a\u8bdd", "\u884c\u4e3a\u4e8b\u4ef6", "\u4e8b\u4ef6\u7edf\u8ba1", "\u7b56\u7565", "\u672c\u5730\u8bed\u4e49\u6a21\u578b", "\u5916\u90e8\u8bed\u4e49\u6a21\u578b", "\u884c\u4e3a\u539f\u5b50", "\u6027\u80fd\u8bca\u65ad", "\u6570\u636e\u8d28\u91cf"];
       var errors = {};
       results.forEach(function (result, index) {
         if (result.status !== "fulfilled") errors[names[index]] = result.reason && result.reason.message || "unavailable";
@@ -1777,6 +1969,7 @@
       if (results[7].status === "fulfilled") state.remoteSemantic = results[7].value;
       if (results[8].status === "fulfilled") state.behaviorAtoms = results[8].value;
       if (results[9].status === "fulfilled") state.performance = results[9].value;
+      if (results[10].status === "fulfilled") state.dataQuality = results[10].value;
       state.dataErrors = errors;
       if (!Object.keys(errors).length) {
         state.lastSuccessfulRefresh = new Date().toISOString();
@@ -1797,6 +1990,7 @@
   window.refreshAidrData = refresh;
   window.aidrNavigate = navigate;
   ensureEndpointSelector();
+  initializePageToolbars();
   initialPage();
   document.getElementById("refreshBtn")?.addEventListener("click", refresh);
   document.querySelectorAll(".nav button").forEach(function (button) {

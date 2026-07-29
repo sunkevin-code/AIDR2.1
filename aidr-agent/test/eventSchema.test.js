@@ -9,6 +9,7 @@ const event = normalizeEvent({
   session_id: "session-1",
   agent_id: "opencode",
   trace_id: "trace-1",
+  decision_id: "decision-1",
   detail: { toolName: "filesystem.write", evidence: [{ type: "rule", value: "secret" }] }
 });
 
@@ -17,6 +18,7 @@ assert.equal(event.eventType, "policy_decision");
 assert.equal(event.sessionId, "session-1");
 assert.equal(event.agentId, "opencode");
 assert.equal(event.traceId, "trace-1");
+assert.equal(event.decisionId, "decision-1");
 assert.equal(event.object, "filesystem.write");
 assert.equal(validateEvent(event).valid, true);
 assert.equal(validateEvent({}).valid, false);

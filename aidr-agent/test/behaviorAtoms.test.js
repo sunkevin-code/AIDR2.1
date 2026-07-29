@@ -48,7 +48,7 @@ const runtime = enrichEvent({
   eventId: "evt-2", category: "process", eventType: "process", summary: "Agent process: codex.exe",
   timestamp: new Date().toISOString(), verdict: "allow", agentId: "codex", detail: { eventType: "process", agentId: "codex", name: "codex.exe" }
 }, policy);
-assert.strictEqual(runtime.atomId, "AGENT.CREATE");
+assert.strictEqual(runtime.atomId, "AGENT.START");
 assert.strictEqual(runtime.boundaryScope, "within");
 
 const aggregate = aggregateEvents([event], policy);
@@ -98,7 +98,7 @@ const networkAggregate = aggregateEvents([{
   detail: { owningProcess: 1234, remoteAddress: "127.0.0.1", remotePort: 443 }
 }], policy);
 assert(networkAggregate.atoms.some(item => item.atomId === "EXEC.TLS_CONNECT"));
-assert.strictEqual(networkAggregate.mappingQuality.averageAtomsPerEvent, 1);
+assert(networkAggregate.mappingQuality.averageAtomsPerEvent >= 2);
 
 const legacyNetworkAggregate = aggregateEvents([{
   eventId: "evt-legacy-network", atomId: "EXEC.SYSTEM_CALL", category: "network", summary: "Outbound TCP connection",
@@ -107,6 +107,6 @@ const legacyNetworkAggregate = aggregateEvents([{
 }], policy);
 assert(legacyNetworkAggregate.atoms.some(item => item.atomId === "EXEC.TLS_CONNECT"));
 assert(!legacyNetworkAggregate.atoms.some(item => item.atomId === "EXEC.SYSTEM_CALL"));
-assert.strictEqual(legacyNetworkAggregate.mappingQuality.multiAtomRate, 0);
+assert.strictEqual(legacyNetworkAggregate.mappingQuality.multiAtomRate, 1);
 
 console.log("behaviorAtoms tests passed");

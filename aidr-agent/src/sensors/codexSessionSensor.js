@@ -14,14 +14,14 @@ class CodexSessionSensor {
     this.interval = null;
     this.lastProcessedId = 0;
     this.knownConversations = new Map();
-    this.stats = { sessions: 0, prompts: 0 };
+    this.stats = { sessions: 0, prompts: 0, rolloutCatchUps: 0, rolloutLagBytes: 0 };
     this.polling = false;
     this.rolloutFiles = {};
     this.rolloutMessageKeys = new Map();
     this.rolloutContexts = new Map();
     this.logsDbFingerprint = null;
     this.transportDatabaseEnabled = policy.sensors?.codex?.transportDatabase === true || process.env.AIDR_CODEX_TRANSPORT_DB === "1";
-    this.maxRolloutReadBytes = Math.max(64 * 1024, Number(policy.sensors?.codex?.maxReadBytes) || 128 * 1024);
+    this.maxRolloutReadBytes = Math.max(512 * 1024, Number(policy.sensors?.codex?.maxReadBytes) || 4 * 1024 * 1024);
     this.transportPollIntervalMs = Math.max(5000, Number(policy.sensors?.codex?.transportPollIntervalMs) || 15000);
     this.lastTransportPollAt = 0;
   }
@@ -110,6 +110,7 @@ class CodexSessionSensor {
         const userInput = this._extractUserMessage(body);
         if (userInput) {
           this.stats.prompts++;
+          this.stats.lastPromptAt = new Date().toISOString();
           if (!this.knownConversations.has(convId)) {
             this.stats.sessions++;
             this.knownConversations.set(convId, true);
@@ -138,8 +139,11 @@ class CodexSessionSensor {
           this.addEvent("codex_session", "info", "allow",
             "Codex prompt: " + cleaned.slice(0, 100),
             {
+              sessionId: convId,
               conversationId: convId,
+              threadId: threadMatch?.[1],
               submissionId,
+              agentId: "openai-codex",
               promptPreview: cleaned.slice(0, 200),
               promptLength: cleaned.length
             }
@@ -155,6 +159,7 @@ class CodexSessionSensor {
 
   async _pollRolloutFiles() {
     if (!fs.existsSync(this.sessionsDir)) return;
+    this.stats.rolloutLagBytes = 0;
 
     const files = this._listRolloutFiles(this.sessionsDir);
     const newest = files
@@ -176,6 +181,14 @@ class CodexSessionSensor {
         // so a live prompt is visible without importing the full history.
         const recent = Date.now() - stat.mtimeMs < 15 * 60 * 1000;
         state = { offset: recent ? Math.max(0, stat.size - this.maxRolloutReadBytes) : stat.size };
+      }
+      const backlogBytes = Math.max(0, stat.size - (Number(state.offset) || 0));
+      this.stats.rolloutLagBytes = Math.max(this.stats.rolloutLagBytes || 0, backlogBytes);
+      if (backlogBytes > this.maxRolloutReadBytes * 2) {
+        state.offset = Math.max(0, stat.size - this.maxRolloutReadBytes);
+        state.catchUpAt = new Date().toISOString();
+        state.skippedBytes = backlogBytes - this.maxRolloutReadBytes;
+        this.stats.rolloutCatchUps += 1;
       }
 
       if (state.size === stat.size && state.mtimeMs === stat.mtimeMs) continue;
@@ -282,6 +295,7 @@ class CodexSessionSensor {
     const context = this.rolloutContexts.get(file) || {};
     const timestamp = record.timestamp || new Date().toISOString();
     this.stats.prompts++;
+    this.stats.lastPromptAt = new Date().toISOString();
     if (!this.knownConversations.has(threadId)) {
       this.stats.sessions++;
       this.knownConversations.set(threadId, true);
@@ -301,8 +315,12 @@ class CodexSessionSensor {
       });
     }
     this.addEvent("codex_session", "info", "allow", "Codex prompt: " + cleaned.slice(0, 100), {
+      sessionId: threadId,
       conversationId: threadId,
+      threadId,
       submissionId,
+      agentId: "openai-codex",
+      cwd: context.cwd || this.policy.workspaceRoot,
       promptPreview: cleaned.slice(0, 200),
       promptLength: cleaned.length,
       source: "codex_rollout"

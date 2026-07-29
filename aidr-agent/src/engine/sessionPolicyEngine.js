@@ -10,7 +10,7 @@ const { buildSessionContextGraph } = require("./sessionContextGraph");
 const { readJsonWithBackup, writeJsonAtomic } = require("../utils/atomicJson");
 const { createDecisionContract } = require("./decisionContract");
 const { buildIntentEvidence } = require("./intentEvidence");
-const { buildCatalog, mapEventToAtoms, classifyBoundary } = require("./behaviorAtoms");
+const { buildCatalog, mapEventToAtoms, classifyBoundary, getOrganizationBoundary, classifyOrganizationAtom } = require("./behaviorAtoms");
 
 const WRITE_INTENT = /(修改|编辑|创建|生成|实现|修复|优化|重构|构建|打包|安装|部署|删除|写入|update|edit|modify|change|create|generate|implement|fix|optimi[sz]e|refactor|build|package|install|deploy|delete|write)/i;
 const SHELL_INTENT = /(运行|启动|测试|构建|编译|安装|执行|命令|run|start|test|build|compile|install|execute|command|shell|powershell|npm|git|dotnet|cargo)/i;
@@ -284,6 +284,46 @@ class SessionPolicyEngine {
         if (value === true) requireApproval[key] = true;
       }
     }
+    const taskAtomIds = new Set(mapEventToAtoms({
+      category: "prompt",
+      eventType: "prompt",
+      summary: text,
+      detail: { prompt: text, agentId }
+    }).map(item => item.atomId));
+    if (capabilities.fileRead) taskAtomIds.add("DATA.FILE_READ");
+    if (capabilities.fileWrite) taskAtomIds.add("DATA.DATA_WRITE");
+    if (capabilities.shell) taskAtomIds.add("EXEC.SHELL_COMMAND");
+    if (capabilities.network) {
+      taskAtomIds.add("PLAN.SELECT");
+      taskAtomIds.add("DATA.RESOURCE_DISCOVER");
+      taskAtomIds.add("DATA.DOCUMENT_READ");
+      taskAtomIds.add("EXEC.NETWORK_CONNECT");
+      taskAtomIds.add("EXEC.NETWORK_SEND");
+      taskAtomIds.add("EXEC.NETWORK_RECEIVE");
+      taskAtomIds.add("EXEC.TLS_CONNECT");
+      taskAtomIds.add("EXEC.HTTP_CONNECT");
+      taskAtomIds.add("TOOL.HTTP_API_CONNECT");
+      if (/browse|web|url|fetch|http/i.test(positiveText)) taskAtomIds.add("TOOL.WEB_FETCH");
+    }
+    if (capabilities.mcpRead || capabilities.mcpWrite) {
+      taskAtomIds.add("TOOL.MCP_CONNECT");
+      taskAtomIds.add("TOOL.INVOKE");
+      taskAtomIds.add("TOOL.RECEIVE_RESULT");
+    }
+    const organizationBoundary = getOrganizationBoundary(this.policy);
+    const catalogById = new Map(buildCatalog(this.policy).map(atom => [atom.id, atom]));
+    const allowedTaskAtoms = Array.from(taskAtomIds).filter(id => {
+      const atom = catalogById.get(id);
+      return atom && classifyOrganizationAtom(atom, organizationBoundary).scope !== "organization";
+    }).sort();
+    const taskPolicyRevision = crypto.createHash("sha256").update(JSON.stringify({
+      prompt: text,
+      agentId,
+      workspace: cwd,
+      atoms: allowedTaskAtoms,
+      capabilities,
+      domains: explicitDomains
+    })).digest("hex").slice(0, 16);
 
     const result = {
       analyzer: "aidr-local-intent-v1",
@@ -311,6 +351,17 @@ class SessionPolicyEngine {
         allowedMcpTools,
         agentAllowedMcpTools,
         capabilities,
+        taskBoundary: {
+          schemaVersion: "aidr-task-boundary-v1",
+          version: taskPolicyRevision,
+          source: "session.intent.minimum_policy",
+          allowedAtoms: allowedTaskAtoms,
+          deniedAtoms: buildCatalog(this.policy).map(atom => atom.id).filter(id => !allowedTaskAtoms.includes(id)),
+          conditionalAtoms: [],
+          policyBasis: ["prompt.intent", "requestedCapabilities", "organizationBoundary"],
+          taskId: context.taskId || context.turnId || null
+        },
+        taskPolicyRevision,
         resolution: policyResolution,
         agentPolicy: {
           mode: agentPolicy.mode || "inherit",
@@ -662,10 +713,22 @@ class SessionPolicyEngine {
     const reason = required.externalNetwork && external ? "External network action requires approval" : required.sensitiveData && sensitive ? "Sensitive data action requires approval" : required.destructiveAction && destructive ? "Destructive action requires approval" : null;
     if (!reason) return null;
     const actionKey = this._approvalActionKey(session.id, tool, input.tool_input || {});
-    const existing = [...this.approvals.values()].find(item => item.actionKey === actionKey && item.status === "approved" && new Date(item.expiresAt).getTime() > Date.now());
-    if (existing) return null;
+    const existing = [...this.approvals.values()].find(item =>
+      item.status === "approved" &&
+      new Date(item.expiresAt).getTime() > Date.now() &&
+      (item.actionKey === actionKey || (item.scope === "session" && item.sessionId === session.id))
+    );
+    if (existing) {
+      if (existing.scope === "once") {
+        existing.status = "consumed";
+        existing.consumedAt = new Date().toISOString();
+        this.approvals.set(existing.id, existing);
+        this._saveApprovals();
+      }
+      return null;
+    }
     const pending = [...this.approvals.values()].find(item => item.actionKey === actionKey && item.status === "pending");
-    const request = pending || { id: crypto.randomUUID(), sessionId: session.id, agent: session.agent, toolName: tool, reason, actionKey, status: "pending", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
+    const request = pending || { id: crypto.randomUUID(), sessionId: session.id, agent: session.agent, toolName: tool, reason, actionKey, scope: "once", status: "pending", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
     this.approvals.set(request.id, request);
     if (!pending) {
       this.stats.approvalCreated = (this.stats.approvalCreated || 0) + 1;
@@ -913,8 +976,11 @@ class SessionPolicyEngine {
   }
 
   _record(session, event, subject, verdict, summary, detail) {
+    const trace = detail?.decisionTrace || session?.decisionTrace || null;
     session.actions.push({
       id: crypto.randomUUID(), timestamp: new Date().toISOString(), event,
+      decisionId: trace?.decisionContract?.decisionId || null,
+      traceId: trace?.traceId || null,
       subject, verdict, summary, detail
     });
     if (session.actions.length > 200) session.actions.shift();
@@ -934,13 +1000,16 @@ class SessionPolicyEngine {
 
   getApprovalsForSession(sessionId) { return this.getApprovals().filter(item => item.sessionId === sessionId); }
 
-  resolveApproval(id, decision = "approved", ttlMinutes = 30) {
+  resolveApproval(id, decision = "approved", ttlMinutes = 30, scope = "once", resolvedBy = "local-admin", reason = "") {
     this._expireApprovals();
     const request = this.approvals.get(String(id));
     if (!request) return null;
     if (request.status !== "pending") return { ...request };
     request.status = decision === "approved" ? "approved" : "rejected";
     request.decision = request.status;
+    request.scope = ["once", "session", "timed"].includes(String(scope)) ? String(scope) : "once";
+    request.resolvedBy = String(resolvedBy || "local-admin");
+    request.resolutionReason = String(reason || "");
     request.resolvedAt = new Date().toISOString();
     request.expiresAt = new Date(Date.now() + Math.max(1, Math.min(1440, Number(ttlMinutes || 30))) * 60000).toISOString();
     this.approvals.set(request.id, request);

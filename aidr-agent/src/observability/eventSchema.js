@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 
 const EVENT_SCHEMA_VERSION = 2;
+const IDENTITY_CONTRACT_VERSION = "aidr-event-identity-v1";
 const EVENT_TYPES = new Set([
   "session", "prompt", "intent", "tool", "tool_response", "file", "process",
   "network", "mcp", "policy_decision", "behavior_drift", "approval", "enforcement",
@@ -25,7 +26,14 @@ function normalizeEvent(input = {}, context = {}) {
   const sessionId = source.sessionId || source.session_id || detail.sessionId || detail.session_id || context.sessionId || null;
   const agentId = source.agentId || source.agent_id || detail.agentId || detail.agent_id || detail.agent || context.agentId || null;
   const traceId = source.traceId || source.trace_id || detail.traceId || detail.trace_id || context.traceId || null;
+  const decisionId = source.decisionId || source.decision_id || detail.decisionId || detail.decision_id || context.decisionId || null;
   const parentEventId = source.parentEventId || source.parent_event_id || detail.parentEventId || detail.parent_event_id || context.parentEventId || null;
+  const endpointId = source.endpointId || source.endpoint_id || detail.endpointId || detail.endpoint_id || context.endpointId || null;
+  const taskId = source.taskId || source.task_id || detail.taskId || detail.task_id || context.taskId || null;
+  const processId = source.processId || source.process_id || source.pid || detail.processId || detail.process_id || detail.pid || context.processId || null;
+  const parentProcessId = source.parentProcessId || source.parent_process_id || source.ppid || detail.parentProcessId || detail.parent_process_id || detail.ppid || context.parentProcessId || null;
+  const toolCallId = source.toolCallId || source.tool_call_id || detail.toolCallId || detail.tool_call_id || detail.callId || context.toolCallId || null;
+  const resourceId = source.resourceId || source.resource_id || detail.resourceId || detail.resource_id || detail.path || detail.url || detail.target || context.resourceId || null;
   const subject = source.subject || detail.subject || detail.resource || source.summary || category;
   const object = source.object || detail.object || detail.target || detail.toolName || detail.tool || null;
   const evidence = asArray(source.evidence || detail.evidence).map(value => typeof value === "string" ? { type: "text", value } : value);
@@ -41,7 +49,14 @@ function normalizeEvent(input = {}, context = {}) {
     eventType,
     source: source.source || detail.source || context.source || "agent",
     traceId,
+    decisionId,
     parentEventId,
+    endpointId,
+    taskId,
+    processId,
+    parentProcessId,
+    toolCallId,
+    resourceId,
     subject,
     object,
     evidence,
@@ -68,7 +83,28 @@ function normalizeEvent(input = {}, context = {}) {
     summary: String(source.summary || `${eventType} event`),
     detail: normalizedDetail,
     traceId,
+    decisionId,
     parentEventId,
+    endpointId,
+    taskId,
+    processId,
+    parentProcessId,
+    toolCallId,
+    resourceId,
+    identityContract: {
+      version: IDENTITY_CONTRACT_VERSION,
+      endpointId,
+      agentId,
+      sessionId,
+      taskId,
+      processId,
+      parentProcessId,
+      toolCallId,
+      resourceId,
+      completeness: Number(([
+        endpointId, agentId, sessionId, taskId, processId
+      ].filter(Boolean).length / 5).toFixed(2))
+    },
     subject: String(subject),
     object: object == null ? null : String(object),
     evidence,
@@ -113,4 +149,4 @@ function validateEvent(event) {
   return { valid: errors.length === 0, errors };
 }
 
-module.exports = { EVENT_SCHEMA_VERSION, EVENT_TYPES, normalizeEvent, validateEvent };
+module.exports = { EVENT_SCHEMA_VERSION, IDENTITY_CONTRACT_VERSION, EVENT_TYPES, normalizeEvent, validateEvent };

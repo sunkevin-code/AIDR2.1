@@ -24,8 +24,10 @@ const second = new SessionPolicyEngine(policy, () => {}, statePath);
 const restored = second.getApprovals("pending");
 assert.equal(restored.length, 1);
 assert.equal(restored[0].id, first.getApprovals("pending")[0].id);
-const resolved = second.resolveApproval(restored[0].id, "approved", 5);
+const resolved = second.resolveApproval(restored[0].id, "approved", 5, "session", "security-admin", "Approved for this task session");
 assert.equal(resolved.status, "approved");
+assert.equal(resolved.scope, "session");
+assert.equal(resolved.resolvedBy, "security-admin");
 
 const third = new SessionPolicyEngine(policy, () => {}, statePath);
 assert.equal(third.getApprovals("pending").length, 0);

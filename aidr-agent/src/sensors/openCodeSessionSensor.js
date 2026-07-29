@@ -219,6 +219,7 @@ class OpenCodeSessionSensor {
     const timestamp = new Date().toISOString();
     const submissionId = "opencode-" + hash.slice(0, 24);
     this.stats.prompts++;
+    this.stats.lastPromptAt = new Date().toISOString();
     this.stats.lastPromptAt = timestamp;
     if (!this.knownSessions.has(entry.sessionId)) {
       this.knownSessions.add(entry.sessionId);

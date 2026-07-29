@@ -169,6 +169,33 @@ function compilePolicyRules(policy = {}, rules = policy.policyRules, catalogIds 
     ruleContributions,
     source: "policy.policyRules.compiler"
   };
+  const compiledRevision = crypto.createHash("sha256").update(JSON.stringify({
+    rules: normalized.map(rule => ({
+      id: rule.id,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      authorization: rule.authorization,
+      agentScope: rule.agentScope
+    })),
+    authorization: effectivePolicy.authorization
+  })).digest("hex").slice(0, 16);
+  effectivePolicy.contract = {
+    schemaVersion: "aidr-policy-compiler-v1",
+    revision: compiledRevision,
+    catalogAtoms: uniqueAtoms(catalogIds).length,
+    ruleCount: normalized.filter(rule => rule.enabled).length,
+    counts: {
+      allow: effectivePolicy.authorization.allowedAtoms.length,
+      conditional: effectivePolicy.authorization.conditionalAtoms.length,
+      deny: effectivePolicy.authorization.deniedAtoms.length
+    },
+    invariants: {
+      mutuallyExclusive: true,
+      catalogCovered: uniqueAtoms(catalogIds).every(id =>
+        allowed.has(id) || conditional.has(id) || denied.has(id)
+      )
+    }
+  };
   return {
     policyBaseline: baseline,
     policyRules: normalized,
@@ -179,6 +206,8 @@ function compilePolicyRules(policy = {}, rules = policy.policyRules, catalogIds 
       conditionalAtoms: effectivePolicy.authorization.conditionalAtoms,
       deniedAtoms: effectivePolicy.authorization.deniedAtoms,
       compiledAtoms,
+      compiledRevision,
+      compilerContract: effectivePolicy.contract,
       source: effectivePolicy.source
     }
   };
@@ -215,3 +244,4 @@ module.exports = {
   compilePolicyRules,
   upsertAtomAuthorizationRule
 };
+const crypto = require("crypto");

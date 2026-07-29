@@ -199,9 +199,9 @@ class AIDRAgent {
       } else {
         this.db = new SQL.Database();
       }
-      this.db.run("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, schema_version INTEGER DEFAULT 1, timestamp TEXT NOT NULL, category TEXT NOT NULL, event_type TEXT, source TEXT, severity TEXT DEFAULT 'info', verdict TEXT DEFAULT 'allow', summary TEXT NOT NULL, detail TEXT DEFAULT '{}', mitre_tactic TEXT, mitre_technique TEXT, session_id TEXT, agent_id TEXT, trace_id TEXT, parent_event_id TEXT, subject TEXT, object TEXT, policy_version TEXT, evidence TEXT DEFAULT '[]', matched_rule TEXT, atom_id TEXT, atom_domain TEXT, atom_confidence REAL, atom_base_level INTEGER, mapping_rule TEXT, boundary_scope TEXT, required_level INTEGER, allowed_level INTEGER, organization_boundary_version TEXT, enforcement_color TEXT)");
+      this.db.run("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, schema_version INTEGER DEFAULT 1, timestamp TEXT NOT NULL, category TEXT NOT NULL, event_type TEXT, source TEXT, severity TEXT DEFAULT 'info', verdict TEXT DEFAULT 'allow', summary TEXT NOT NULL, detail TEXT DEFAULT '{}', mitre_tactic TEXT, mitre_technique TEXT, session_id TEXT, agent_id TEXT, trace_id TEXT, decision_id TEXT, parent_event_id TEXT, subject TEXT, object TEXT, policy_version TEXT, evidence TEXT DEFAULT '[]', matched_rule TEXT, atom_id TEXT, atom_domain TEXT, atom_confidence REAL, atom_base_level INTEGER, mapping_rule TEXT, boundary_scope TEXT, required_level INTEGER, allowed_level INTEGER, organization_boundary_version TEXT, enforcement_color TEXT)");
       const columns = new Set((this.db.exec("PRAGMA table_info(events)")[0]?.values || []).map(row => String(row[1])));
-      for (const [name, type] of [["event_id", "TEXT"], ["schema_version", "INTEGER DEFAULT 1"], ["event_type", "TEXT"], ["source", "TEXT"], ["agent_id", "TEXT"], ["trace_id", "TEXT"], ["parent_event_id", "TEXT"], ["subject", "TEXT"], ["object", "TEXT"], ["policy_version", "TEXT"], ["evidence", "TEXT DEFAULT '[]'"], ["atom_id", "TEXT"], ["atom_domain", "TEXT"], ["atom_confidence", "REAL"], ["atom_base_level", "INTEGER"], ["mapping_rule", "TEXT"], ["boundary_scope", "TEXT"], ["required_level", "INTEGER"], ["allowed_level", "INTEGER"], ["organization_boundary_version", "TEXT"], ["enforcement_color", "TEXT"]]) { if (!columns.has(name)) this.db.run(`ALTER TABLE events ADD COLUMN ${name} ${type}`); }
+      for (const [name, type] of [["event_id", "TEXT"], ["schema_version", "INTEGER DEFAULT 1"], ["event_type", "TEXT"], ["source", "TEXT"], ["agent_id", "TEXT"], ["trace_id", "TEXT"], ["decision_id", "TEXT"], ["parent_event_id", "TEXT"], ["subject", "TEXT"], ["object", "TEXT"], ["policy_version", "TEXT"], ["evidence", "TEXT DEFAULT '[]'"], ["atom_id", "TEXT"], ["atom_domain", "TEXT"], ["atom_confidence", "REAL"], ["atom_base_level", "INTEGER"], ["mapping_rule", "TEXT"], ["boundary_scope", "TEXT"], ["required_level", "INTEGER"], ["allowed_level", "INTEGER"], ["organization_boundary_version", "TEXT"], ["enforcement_color", "TEXT"]]) { if (!columns.has(name)) this.db.run(`ALTER TABLE events ADD COLUMN ${name} ${type}`); }
       this.db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_time ON events(timestamp)");
       this.db.run("CREATE INDEX IF NOT EXISTS idx_events_verdict ON events(verdict)");
@@ -284,10 +284,10 @@ class AIDRAgent {
   _persistEvent(event, schedule = true) {
     if (!this.db) return;
     try {
-      this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,event_type,source,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,trace_id,parent_event_id,subject,object,policy_version,evidence,matched_rule,atom_id,atom_domain,atom_confidence,atom_base_level,mapping_rule,boundary_scope,required_level,allowed_level,organization_boundary_version,enforcement_color) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+      this.db.run("INSERT OR IGNORE INTO events (event_id,schema_version,timestamp,category,event_type,source,severity,verdict,summary,detail,mitre_tactic,mitre_technique,session_id,agent_id,trace_id,decision_id,parent_event_id,subject,object,policy_version,evidence,matched_rule,atom_id,atom_domain,atom_confidence,atom_base_level,mapping_rule,boundary_scope,required_level,allowed_level,organization_boundary_version,enforcement_color) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
         event.eventId, event.schemaVersion, event.timestamp, event.category, event.eventType, event.source, event.severity, event.verdict,
         event.summary, JSON.stringify(event.detail || {}), event.mitreTactic, event.mitreTechnique, event.sessionId, event.agentId,
-        event.traceId, event.parentEventId, event.subject, event.object, event.policyVersion, JSON.stringify(event.evidence || []), event.matchedRule,
+        event.traceId, event.decisionId, event.parentEventId, event.subject, event.object, event.policyVersion, JSON.stringify(event.evidence || []), event.matchedRule,
         event.atomId, event.atomDomain, event.atomConfidence, event.atomBaseLevel, event.mappingRule, event.boundaryScope,
         event.requiredLevel, event.allowedLevel, event.organizationBoundaryVersion, event.enforcementColor
       ]);
@@ -336,6 +336,7 @@ class AIDRAgent {
       sessionId: tags.sessionId || detail?.sessionId || inferredSession?.id || this.sessionId,
       agentId: inferredAgentId,
       traceId: tags.traceId || detail?.traceId || inferredSession?.decisionTrace?.traceId || null,
+      decisionId: tags.decisionId || detail?.decisionId || inferredSession?.decisionTrace?.decisionContract?.decisionId || null,
       parentEventId: tags.parentEventId || detail?.parentEventId || null,
       policyVersion: tags.policyVersion || detail?.policyVersion || this.policy?.policyMeta?.revision || this.policy?.version || null,
       subject: tags.subject || detail?.subject || summary,

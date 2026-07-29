@@ -297,7 +297,7 @@ function mapEventToAtom(event = {}) {
     id = /send|context|prompt/i.test(text) ? "MODEL.SEND_CONTEXT" : /output|response/i.test(text) ? "MODEL.RECEIVE_OUTPUT" : "MODEL.INVOKE";
     rule = "model.runtime_operation";
   }
-  else if (category === "process" && detail.eventType === "process" && detail.agentId && detail.name) { id = "AGENT.CREATE"; rule = "agent.runtime_observation"; }
+  else if (category === "process" && detail.eventType === "process" && detail.agentId && detail.name) { id = "AGENT.START"; rule = "agent.runtime_process_start"; }
   else if ((category.includes("agent") && !category.includes("tool")) || /delegate|spawn|sub.?agent|agent.?message/i.test(text)) { id = /delegate/i.test(text) ? "AGENT.DELEGATE" : /message|communicat/i.test(text) ? "AGENT.COMMUNICATE" : "AGENT.CREATE"; rule = "agent.coordination"; }
   else if ((category.includes("tool") || category.includes("mcp")) && /connect|connection|api|browser|database|cloud|mcp/i.test(text)) { id = toolConnectionAtomId(event, text); rule = "agent.tool_connection"; }
   else if (category.includes("network") || /network|url|http|https|socket|request/i.test(text)) { id = networkAtomId(event, text); rule = "runtime.network_operation"; }
@@ -311,13 +311,37 @@ function mapEventToAtom(event = {}) {
   const confidence = promptInjection ? 0.99 : id === "INTENT.INTERPRET" ? 0.58 : (HIGH_RISK.has(id) ? 0.96 : 0.88);
   const derived = new Set([id]);
   const lower = text + " " + toolName;
+  if (category.includes("session") || category.includes("prompt") || category.includes("intent")) {
+    derived.add("INTENT.RECEIVE");
+    derived.add("INTENT.INTERPRET");
+    derived.add(intentTaskAtomId(lower));
+    derived.add("PLAN.CREATE");
+  }
+  if (category.includes("tool") || category.includes("mcp")) {
+    derived.add("PLAN.SELECT");
+    derived.add("TOOL.INVOKE");
+  }
   if (/file|path|readme|workspace|\.env|credential|secret|ssh.?key|private.?key/i.test(lower)) derived.add(/write|modify|edit|create/i.test(lower) ? "DATA.DATA_WRITE" : dataReadAtomId(event, lower));
   if (/tool|mcp|invoke|filesystem\.|browser\.|webfetch/i.test(lower)) derived.add(/write|modify|edit|create/i.test(lower) ? "TOOL.INVOKE" : "TOOL.RECEIVE_RESULT");
   if (category.includes("network") || /socket|connection|connect(?:ed|ion)?|remote.?address|remote.?port|outbound/i.test(lower)) {
     derived.add(networkAtomId(event, lower));
   }
   if (category.includes("process") || /shell|command|powershell|npm run|curl|wget|spawn|execute/i.test(lower)) {
-    derived.add(category.includes("process") || /spawn|process.?create/i.test(lower) ? processCreateAtomId(event, lower) : executionAtomId(event, lower));
+    if (category.includes("process") || /spawn|process.?create/i.test(lower)) {
+      derived.add("EXEC.PROCESS_CREATE");
+      derived.add(processCreateAtomId(event, lower));
+      derived.add(executionAtomId(event, lower));
+    } else {
+      derived.add(executionAtomId(event, lower));
+    }
+  }
+  if (category.includes("file") || /file|readme|workspace|path|document|config/i.test(lower)) {
+    derived.add("DATA.RESOURCE_DISCOVER");
+    derived.add(/write|modify|edit|create/i.test(lower) ? "DATA.DATA_WRITE" : "DATA.FILE_READ");
+    derived.add(/write|modify|edit|create/i.test(lower) ? "DATA.DATA_MODIFY" : dataReadAtomId(event, lower));
+  }
+  if (category.includes("network") || /socket|connection|connect(?:ed|ion)?|remote.?address|remote.?port|outbound/i.test(lower)) {
+    derived.add(toolConnectionAtomId(event, lower));
   }
   if (/https?:\/\/|external|upload|exfil|transfer|send.?to|outbound/i.test(lower)) derived.add(networkAtomId(event, lower));
   if (/credential|secret|\.env|ssh.?key|id_rsa|private.?key|password|api.?key|token/i.test(lower)) derived.add(/upload|exfil|transfer|send/i.test(lower) ? "AUTH.CREDENTIAL_TRANSFER" : "AUTH.CREDENTIAL_DISCOVER");
@@ -336,11 +360,11 @@ function mapEventToAtom(event = {}) {
     atomId: id,
     confidence,
     mappingRule: rule,
-    mappingVersion: "rules-v3-structured",
+    mappingVersion: "rules-v4-identity-structured",
     candidates,
     atoms: atomSet,
     unknown: id === "INTENT.INTERPRET" && confidence < 0.65,
-    calibrationVersion: "rules-calibration-pending-v1",
+    calibrationVersion: "rules-calibration-v2",
     explanation: {
       rawEvent: { category, eventType: event.eventType || null, summary: event.summary || "", source: event.source || null },
       matchedRule: rule,
@@ -445,15 +469,22 @@ function deriveTaskLevels(effective = {}, maxLevel = 3) {
 
 function sessionBoundary(session = {}) {
   const effective = session.effectivePolicy || session.taskBoundary || {};
+  const compiled = effective.taskBoundary && typeof effective.taskBoundary === "object" ? effective.taskBoundary : effective;
   const capabilities = effective.capabilities || {};
   const maxLevel = Number.isFinite(Number(effective.maxLevel)) ? Number(effective.maxLevel) : 3;
   return {
+    version: compiled.version || effective.taskPolicyRevision || "task-boundary-v1",
     maxLevel,
     levels: deriveTaskLevels(effective, maxLevel),
     capabilities,
+    allowedAtoms: Array.from(new Set(compiled.allowedAtoms || [])).map(canonicalAtomId),
+    conditionalAtoms: Array.from(new Set(compiled.conditionalAtoms || [])).map(canonicalAtomId),
+    deniedAtoms: Array.from(new Set(compiled.deniedAtoms || [])).map(canonicalAtomId),
     allowedDomains: effective.allowedDomains || [],
     deniedPaths: effective.deniedPaths || [],
-    source: "session.taskBoundary"
+    taskId: compiled.taskId || null,
+    policyBasis: compiled.policyBasis || [],
+    source: compiled.source || "session.taskBoundary"
   };
 }
 
@@ -486,6 +517,9 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
   const threatAdjustment = String(event.mappingRule || "").startsWith("threat.") ? 2 : 0;
   const requiredLevel = Math.min(5, Number(atom.baseLevel || 0) + threatAdjustment + (atom.highRisk ? 0 : 0));
   const taskDeniedPath = (task.deniedPaths || []).some(pattern => String(resource).toLowerCase().includes(String(pattern).replace(/\*/g, "").toLowerCase()));
+  const taskAllowedAtoms = new Set((task.allowedAtoms || []).map(canonicalAtomId));
+  const taskDeniedAtoms = new Set((task.deniedAtoms || []).map(canonicalAtomId));
+  const taskAtomExcluded = taskDeniedAtoms.has(atom.id) || (taskAllowedAtoms.size > 0 && !taskAllowedAtoms.has(atom.id));
   const matchesDomain = (pattern, value) => pattern === "*" || value.includes(String(pattern));
   const taskDomainDenied = externalTarget && task.allowedDomains?.length > 0 && !task.allowedDomains.some(domain => matchesDomain(domain, destination));
   const orgAllowedLevel = org.levels?.[atom.domain] ?? org.maxLevel;
@@ -493,7 +527,7 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
   const orgLevelExceeded = !allowedByAtom && requiredLevel > orgAllowedLevel;
   const taskLevelExceeded = requiredLevel > taskAllowedLevel;
   const orgExceeded = disabledAtom || deniedByAtom || deniedPath || orgLevelExceeded || (externalTarget && !org.allowedDomains.some(domain => matchesDomain(domain, destination)));
-  const taskExceeded = !orgExceeded && (taskLevelExceeded || taskDeniedPath || taskDomainDenied);
+  const taskExceeded = !orgExceeded && (taskAtomExcluded || taskLevelExceeded || taskDeniedPath || taskDomainDenied);
   const scope = orgExceeded ? "organization" : taskExceeded ? "task" : conditionalByAtom ? "conditional" : "within";
   return {
     scope,
@@ -506,7 +540,7 @@ function classifyBoundary(atom, event = {}, policy = {}, session = {}) {
     externalTarget,
     layers: {
       organization: { maxLevel: orgAllowedLevel, denied: orgExceeded, conditional: conditionalByAtom, reason: disabledAtom ? "atom_disabled" : deniedByAtom ? "atom_denied_by_policy" : conditionalByAtom ? "atom_requires_approval" : deniedPath ? "path_denied_by_policy" : orgLevelExceeded ? "level_exceeds_organization" : (externalTarget && !org.allowedDomains.some(domain => matchesDomain(domain, destination))) ? "domain_outside_organization" : "within", version: org.version },
-      task: { maxLevel: taskAllowedLevel, denied: taskExceeded, source: task.source },
+      task: { maxLevel: taskAllowedLevel, denied: taskExceeded, reason: taskAtomExcluded ? "atom_outside_task_policy" : taskDeniedPath ? "path_outside_task_policy" : taskDomainDenied ? "domain_outside_task_policy" : taskLevelExceeded ? "level_exceeds_task" : "within", source: task.source, version: task.version, taskId: task.taskId },
       runtime: { externalTarget, resource }
     }
   };
@@ -533,11 +567,11 @@ function enrichEvent(event, policy = {}, session = {}) {
     originalAtomId: String(event.atomId).toUpperCase(),
     confidence: Number(event.atomConfidence ?? 1),
     mappingRule: event.mappingRule || "upstream_mapping",
-    mappingVersion: needsStructuralBackfill ? "upstream+rules-v3-structured" : (event.mappingVersion || "upstream"),
+    mappingVersion: needsStructuralBackfill ? "upstream+rules-v4-identity-structured" : (event.mappingVersion || "upstream"),
     candidates: event.mappingCandidates || [],
     atoms: backfilledAtoms.length ? backfilledAtoms : [{ atomId: upstreamAtomId, role: "primary", score: Number(event.atomConfidence ?? 1), rule: event.mappingRule || "upstream_mapping" }],
     unknown: Boolean(event.mappingUnknown),
-    calibrationVersion: event.calibrationVersion || "upstream"
+    calibrationVersion: event.calibrationVersion || "rules-calibration-v2"
   } : structuralMapping;
   const catalog = buildCatalog(policy);
   const atom = catalog.find(item => item.id === mapping.atomId) || normalizeAtomDefinition({ id: mapping.atomId || "UNMAPPED.UNKNOWN", domain: String(mapping.atomId || "UNMAPPED.UNKNOWN").split(".")[0], baseLevel: 2, highRisk: true, description: "未归属行为原子", system: false });

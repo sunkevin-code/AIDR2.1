@@ -823,9 +823,9 @@ function startUiServer() {
       }
 
       const proxyRoutes = [
-        "/api/events", "/api/events/stats", "/api/events/validate", "/api/decision/validate", "/api/sessions", "/api/sensors", "/api/rules", "/api/policy",
+        "/api/events", "/api/events/stats", "/api/events/validate", "/api/decision/validate", "/api/decisions", "/api/sessions", "/api/sensors", "/api/rules", "/api/policy",
         "/api/policy/history", "/api/policy/verify", "/api/policy/rollback", "/api/enforce",
-        "/api/enforcement/status", "/api/agents", "/api/adapters", "/api/adapters/events", "/api/approvals", "/api/policy/resolution", "/api/hooks/agent", "/api/intent/analyze", "/api/ui/contract", "/api/audit/status", "/api/audit/verify", "/api/audit/export", "/api/semantic/config", "/api/semantic/providers", "/api/semantic/feedback", "/api/semantic/feedback/stats", "/api/semantic/key", "/api/semantic/test", "/api/semantic/local-config", "/api/semantic/runtime", "/api/policy/templates", "/api/policy/simulate", "/api/policy/validate", "/api/threat/test", "/api/behavior-atoms", "/api/behavior-atoms/stats", "/api/orbits", "/api/diagnostics/performance"
+        "/api/enforcement/status", "/api/agents", "/api/adapters", "/api/adapters/events", "/api/approvals", "/api/policy/resolution", "/api/hooks/agent", "/api/intent/analyze", "/api/ui/contract", "/api/audit/status", "/api/audit/verify", "/api/audit/export", "/api/semantic/config", "/api/semantic/providers", "/api/semantic/feedback", "/api/semantic/feedback/stats", "/api/semantic/key", "/api/semantic/test", "/api/semantic/local-config", "/api/semantic/runtime", "/api/policy/templates", "/api/policy/simulate", "/api/policy/impact", "/api/policy/validate", "/api/threat/test", "/api/behavior-atoms", "/api/behavior-atoms/stats", "/api/orbits", "/api/diagnostics/performance", "/api/diagnostics/data-quality"
       ];
       const isSessionRoute = /^\/api\/sessions\/[^/]+(?:\/graph|\/policy)?$/.test(upstreamPathname);
       const isRuleRoute = /^\/api\/rules\/[^/]+$/.test(upstreamPathname);

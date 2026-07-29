@@ -57,12 +57,20 @@ async function initDB() {
       mitre_tactic TEXT,
       mitre_technique TEXT,
       session_id TEXT,
+      trace_id TEXT,
+      decision_id TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     )
   `);
   db.run("CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id, timestamp)");
   db.run("CREATE INDEX IF NOT EXISTS idx_events_time ON events(timestamp)");
   db.run("CREATE INDEX IF NOT EXISTS idx_events_verdict ON events(verdict)");
+  const eventColumnResult = db.exec("PRAGMA table_info(events)");
+  const eventColumnNames = eventColumnResult[0]?.columns || [];
+  const eventColumns = new Set((eventColumnResult[0]?.values || []).map(row => row[eventColumnNames.indexOf("name")]));
+  if (!eventColumns.has("trace_id")) db.run("ALTER TABLE events ADD COLUMN trace_id TEXT");
+  if (!eventColumns.has("decision_id")) db.run("ALTER TABLE events ADD COLUMN decision_id TEXT");
+  db.run("CREATE INDEX IF NOT EXISTS idx_events_decision ON events(decision_id, timestamp)");
   db.run(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
@@ -353,8 +361,8 @@ initDB().then(() => {
 
   function ingestEvent(agentId, evt) {
     const eventId = String(evt?.eventId || uuidv4());
-    execSQL("INSERT OR IGNORE INTO events (event_id, agent_id, timestamp, category, severity, verdict, summary, detail, mitre_tactic, mitre_technique, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [eventId, agentId, evt.timestamp || new Date().toISOString(), evt.category || "system", evt.severity || "info", evt.verdict || "allow", evt.summary || "", JSON.stringify(evt.detail || {}), evt.mitreTactic || null, evt.mitreTechnique || null, evt.sessionId || null]);
+    execSQL("INSERT OR IGNORE INTO events (event_id, agent_id, timestamp, category, severity, verdict, summary, detail, mitre_tactic, mitre_technique, session_id, trace_id, decision_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [eventId, agentId, evt.timestamp || new Date().toISOString(), evt.category || "system", evt.severity || "info", evt.verdict || "allow", evt.summary || "", JSON.stringify(evt.detail || {}), evt.mitreTactic || null, evt.mitreTechnique || null, evt.sessionId || null, evt.traceId || evt.detail?.traceId || null, evt.decisionId || evt.detail?.decisionId || null]);
     if (evt.verdict === "block") execSQL("INSERT OR IGNORE INTO alerts (id, agent_id, event_id, title, description, severity) VALUES (?, ?, ?, ?, ?, ?)",
       [eventId + ":alert", agentId, eventId, "Blocked: " + (evt.summary || "").slice(0, 100), evt.summary || "", "high"]);
     return eventId;

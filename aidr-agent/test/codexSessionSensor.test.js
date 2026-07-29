@@ -42,4 +42,18 @@ assert.strictEqual(sensor._extractRolloutPrompt({
   payload: { type: "user_message", message: "**我再测试一下**\n" }
 }), "**我再测试一下**\n");
 
+let capturedEvent = null;
+const liveSensor = new CodexSessionSensor(
+  { workspaceRoot: "C:\\workspace" },
+  (category, severity, verdict, summary, detail) => { capturedEvent = { category, severity, verdict, summary, detail }; },
+  { publish() {} }
+);
+liveSensor._processRolloutLine(
+  "rollout-2026-07-29T10-00-00-019e6ef9-4c1f-76a2-abf8-401ecd5595bf.jsonl",
+  JSON.stringify({ type: "event_msg", timestamp: "2026-07-29T10:01:00.000Z", payload: { type: "user_message", message: "检查当前策略" } })
+);
+assert.strictEqual(capturedEvent.detail.sessionId, "019e6ef9-4c1f-76a2-abf8-401ecd5595bf");
+assert.strictEqual(capturedEvent.detail.agentId, "openai-codex");
+assert.strictEqual(capturedEvent.detail.source, "codex_rollout");
+
 console.log("codexSessionSensor.test.js passed");

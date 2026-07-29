@@ -7,6 +7,154 @@ const { buildCatalog, enrichEvent, aggregateEvents, getOrganizationBoundary, cla
 const { buildOrbitGraph } = require("../engine/behaviorAtomSchema");
 const { compilePolicyRules, upsertAtomAuthorizationRule } = require("../engine/policyRules");
 
+function normalizeAgentIdentity(value) {
+  return String(value || "").toLowerCase()
+    .replace(/^openai[-_. ]*/, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function buildDataQuality(events = [], sensors = {}) {
+  const total = events.length;
+  const now = Date.now();
+  const sensorHealth = {};
+  for (const [name, sensor] of Object.entries(sensors || {})) {
+    const stats = sensor?.getStats?.() || {};
+    const lastEventAt = stats.lastEventAt || stats.lastPromptAt || stats.lastSeenAt || stats.lastPollAt || null;
+    const lastEventMs = lastEventAt ? Date.parse(lastEventAt) : NaN;
+    const lagBytes = Number(stats.rolloutLagBytes || stats.lagBytes || 0);
+    const errors = Number(stats.errors || stats.errorCount || 0);
+    sensorHealth[name] = {
+      active: Boolean(sensor?.active),
+      status: !sensor?.active ? "disabled" : errors > 0 ? "degraded" : "ready",
+      lastEventAt,
+      ageMs: Number.isFinite(lastEventMs) ? Math.max(0, now - lastEventMs) : null,
+      lagBytes,
+      errors,
+      stats
+    };
+  }
+  const count = predicate => events.reduce((sum, event) => sum + (predicate(event) ? 1 : 0), 0);
+  const withAgent = count(event => Boolean(event.agentId || event.detail?.agentId));
+  const withSession = count(event => Boolean(event.sessionId || event.detail?.sessionId));
+  const withProcess = count(event => Boolean(event.processId || event.pid || event.detail?.processId || event.detail?.pid));
+  const withTask = count(event => Boolean(event.taskId || event.detail?.taskId));
+  const denominator = Math.max(1, total);
+  return {
+    schemaVersion: "aidr-data-quality-v1",
+    generatedAt: new Date().toISOString(),
+    totalEvents: total,
+    identity: {
+      agentLinkRate: Number((withAgent / denominator).toFixed(4)),
+      sessionLinkRate: Number((withSession / denominator).toFixed(4)),
+      processLinkRate: Number((withProcess / denominator).toFixed(4)),
+      taskLinkRate: Number((withTask / denominator).toFixed(4)),
+      unattributedEvents: Math.max(0, total - withAgent)
+    },
+    sensors: sensorHealth,
+    stale: total === 0,
+    status: total === 0 ? "no_data" : withAgent / denominator < 0.8 || withSession / denominator < 0.5 ? "degraded" : "healthy"
+  };
+}
+
+function compactBehaviorPath(path = [], limit = 80) {
+  const ordered = Array.isArray(path) ? path.slice() : [];
+  const latestTaskId = ordered.slice().reverse().find(item => item.taskId)?.taskId || null;
+  const scoped = latestTaskId ? ordered.filter(item => item.taskId === latestTaskId) : ordered;
+  const compacted = [];
+  for (const item of scoped) {
+    const previous = compacted[compacted.length - 1];
+    const same = previous
+      && previous.atomId === item.atomId
+      && previous.verdict === item.verdict
+      && previous.boundaryScope === item.boundaryScope
+      && String(previous.resource || "") === String(item.resource || "");
+    if (same) {
+      previous.repeatCount = Number(previous.repeatCount || 1) + 1;
+      previous.lastTimestamp = item.timestamp || previous.lastTimestamp;
+      previous.eventIds = [...(previous.eventIds || [previous.eventId]), item.eventId].filter(Boolean).slice(-20);
+    } else {
+      compacted.push({ ...item, repeatCount: 1, eventIds: item.eventId ? [item.eventId] : [] });
+    }
+  }
+  return compacted.length > limit ? compacted.slice(-limit) : compacted;
+}
+
+function expandActualPathForPrediction(path = [], predicted = []) {
+  const predictedIds = new Set(predicted.map(item => String(item.atomId || "").toUpperCase()).filter(Boolean));
+  const emittedPredicted = new Set();
+  const expanded = [];
+  for (const item of path) {
+    const eventAtoms = Array.isArray(item.atoms) ? item.atoms : [];
+    const matchingAtoms = eventAtoms
+      .map(atom => String(atom.atomId || atom.id || "").toUpperCase())
+      .filter(id => id && predictedIds.has(id) && !emittedPredicted.has(id));
+    const primaryId = String(item.atomId || "").toUpperCase();
+    const ids = Array.from(new Set([...matchingAtoms, primaryId].filter(Boolean)));
+    for (const atomId of ids) {
+      if (predictedIds.has(atomId)) emittedPredicted.add(atomId);
+      expanded.push({
+        ...item,
+        atomId,
+        sourceAtomId: primaryId,
+        derivedFromEvent: atomId !== primaryId
+      });
+    }
+  }
+  return expanded;
+}
+
+function linkBehaviorEventToSession(event = {}, sessions = []) {
+  if (event.sessionId || event.session_id || event.detail?.sessionId || event.detail?.session_id) return event;
+  const detail = event.detail || {};
+  const identifiers = new Set([
+    event.traceId, event.trace_id, event.threadId, event.thread_id, event.turnId, event.turn_id,
+    detail.traceId, detail.trace_id, detail.threadId, detail.thread_id, detail.turnId, detail.turn_id,
+    detail.submissionId, detail.submission_id, detail.conversationId, detail.conversation_id
+  ].filter(Boolean).map(String));
+  const direct = (sessions || []).filter(session => [
+    session.id, session.traceId, session.threadId, session.turnId, session.submissionId,
+    session.decisionTrace?.traceId
+  ].filter(Boolean).some(value => identifiers.has(String(value))));
+  let matched = direct.length === 1 ? direct[0] : null;
+  let source = matched ? "session.explicit_identifier" : null;
+  let confidence = matched ? 1 : 0;
+
+  if (!matched) {
+    const eventAgent = normalizeAgentIdentity(event.agentId || event.agent || detail.agentId || detail.agent);
+    const eventTime = new Date(event.timestamp || event.time || 0).getTime();
+    const eventWorkspace = String(detail.cwd || detail.workspace || detail.workspaceRoot || detail.path || event.object || "").toLowerCase();
+    const candidates = (sessions || []).filter(session => {
+      const sessionAgent = normalizeAgentIdentity(session.agent || session.agentId);
+      if (!eventAgent || !sessionAgent || !(eventAgent === sessionAgent || eventAgent.includes(sessionAgent) || sessionAgent.includes(eventAgent))) return false;
+      const startedAt = new Date(session.createdAt || session.startedAt || session.timestamp || 0).getTime();
+      const lastAt = new Date(session.endedAt || session.updatedAt || session.createdAt || 0).getTime();
+      if (!eventTime || !startedAt || !lastAt || eventTime < startedAt - 2 * 60000 || eventTime > lastAt + 15 * 60000) return false;
+      const workspace = String(session.cwd || session.workspaceRoot || session.effectivePolicy?.workspaceRoot || "").toLowerCase();
+      return !eventWorkspace || !workspace || eventWorkspace.includes(workspace) || workspace.includes(eventWorkspace);
+    }).sort((left, right) => {
+      const leftGap = Math.abs(eventTime - new Date(left.updatedAt || left.createdAt || 0).getTime());
+      const rightGap = Math.abs(eventTime - new Date(right.updatedAt || right.createdAt || 0).getTime());
+      return leftGap - rightGap;
+    });
+    if (candidates.length === 1) {
+      matched = candidates[0];
+      source = "session.agent_time_workspace";
+      confidence = eventWorkspace ? 0.9 : 0.82;
+    }
+  }
+  if (!matched) return event;
+  return {
+    ...event,
+    sessionId: matched.id,
+    agentId: event.agentId || event.agent || detail.agentId || detail.agent || matched.agent || null,
+    detail: {
+      ...detail,
+      sessionId: matched.id,
+      sessionAttribution: { source, confidence, agent: matched.agent || null }
+    }
+  };
+}
+
 function startApiServer({
   policy, events, db, addEvent, sensors, transport, apiPort, handleEvent,
   ruleEngine, llmClassifier, localSemanticClassifier, semanticClassifier, enforcer, policyStore, getPolicyVerification,
@@ -52,10 +200,37 @@ function startApiServer({
   function buildPredictedPath(session) {
     const intent = session?.intent || {};
     const capabilities = intent.requiredCapabilities || intent.capabilities || {};
+    const evidence = intent.intentEvidence || {};
+    const promptEvidenceId = evidence.promptSha256 ? `prompt:${String(evidence.promptSha256).slice(0, 16)}` : "prompt:unavailable";
+    const modelConfidence = Math.max(
+      Number(evidence.risk?.localConfidence || 0),
+      Number(evidence.risk?.semanticConfidence || 0)
+    );
     const path = [];
-    const push = (atomId, reason) => path.push({ atomId, state: "predicted", source: "intent", reason, sequence: path.length + 1 });
-    if (session?.prompt || intent.summary) push("INTENT.INTERPRET", "任务目标与约束解析");
-    if (session?.prompt || intent.summary) push("PLAN.CREATE", "根据意图生成最小执行计划");
+    const push = (atomId, reason, basis = {}) => path.push({
+      atomId,
+      state: "predicted",
+      source: basis.source || "intent_analysis",
+      reason,
+      sequence: path.length + 1,
+      evidenceIds: Array.from(new Set([promptEvidenceId, ...(basis.evidenceIds || [])])),
+      confidence: Number((((basis.confidence ?? modelConfidence) || 0.66)).toFixed(2)),
+      derivation: {
+        input: basis.input || intent.summary || "session_prompt",
+        inference: basis.inference || reason,
+        output: atomId
+      }
+    });
+    if (session?.prompt || intent.summary) push("INTENT.INTERPRET", "解析任务目标、资源对象与显式约束", {
+      input: "Prompt + session context",
+      evidenceIds: ["intent:goal"],
+      confidence: Math.max(modelConfidence, 0.78)
+    });
+    if (session?.prompt || intent.summary) push("PLAN.CREATE", "将任务目标编译为最小能力执行计划", {
+      input: "normalized intent",
+      evidenceIds: ["intent:goal", "policy:least_privilege"],
+      confidence: Math.max(modelConfidence, 0.72)
+    });
     const capabilityAtoms = {
       fileRead: ["DATA.DATA_READ", "读取任务所需工作区数据"],
       fileWrite: ["DATA.DATA_WRITE", "写入任务明确要求的输出"],
@@ -65,9 +240,17 @@ function startApiServer({
       mcpWrite: ["TOOL.INVOKE", "调用具有写入副作用的工具或 MCP"]
     };
     Object.keys(capabilityAtoms).forEach(name => {
-      if (capabilities[name] === true) push(capabilityAtoms[name][0], capabilityAtoms[name][1]);
+      if (capabilities[name] === true) push(capabilityAtoms[name][0], capabilityAtoms[name][1], {
+        input: `requiredCapabilities.${name}=true`,
+        evidenceIds: [`capability:${name}`],
+        confidence: Math.max(modelConfidence, 0.76)
+      });
     });
-    if (path.length) push("PLAN.COMPLETE", "任务达到完成条件后结束");
+    if (path.length) push("PLAN.COMPLETE", "任务达到输出条件后结束并停止扩权", {
+      input: "task completion criteria",
+      evidenceIds: ["policy:completion_boundary"],
+      confidence: Math.max(modelConfidence, 0.7)
+    });
     return path;
   }
 
@@ -82,6 +265,72 @@ function startApiServer({
       } catch (_) {}
     }
     return events.slice(-boundedLimit);
+  }
+
+  function behaviorEventsForSession(sessionId, limit = 500) {
+    const boundedLimit = clampInt(limit, 1, 5000, 500);
+    if (db) {
+      try {
+        const rows = queryAll(
+          "SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?",
+          [String(sessionId), boundedLimit]
+        );
+        if (rows.length) return rows.map(parseEventRow);
+      } catch (_) {}
+    }
+    return events
+      .filter(event => String(event.sessionId || event.session_id || event.detail?.sessionId || "") === String(sessionId))
+      .sort((a, b) => String(a.timestamp || a.time || "").localeCompare(String(b.timestamp || b.time || "")))
+      .slice(-boundedLimit);
+  }
+
+function alignBehaviorPaths(predicted = [], actual = []) {
+  const alignmentKey = value => {
+    const id = String(value || "").toUpperCase();
+    if (["EXEC.CODE_EXECUTE", "EXEC.PROGRAM_EXECUTE", "EXEC.SCRIPT_EXECUTE"].includes(id)) return "EXEC.EXECUTE";
+    if (["DATA.DATA_READ", "DATA.FILE_READ", "DATA.DOCUMENT_READ", "DATA.SOURCE_CODE_READ", "DATA.CONFIG_READ"].includes(id)) return "DATA.READ";
+    if (["DATA.DATA_WRITE", "DATA.FILE_WRITE", "DATA.DOCUMENT_WRITE", "DATA.CONFIG_WRITE"].includes(id)) return "DATA.WRITE";
+    return id;
+  };
+  const queues = new Map();
+  predicted.forEach((item, index) => {
+    const id = alignmentKey(item.atomId);
+      if (!queues.has(id)) queues.set(id, []);
+      queues.get(id).push(index);
+    });
+    const usedPredicted = new Set();
+    let cursor = -1;
+  const alignedActual = actual.map((item, actualIndex) => {
+      const id = alignmentKey(item.atomId);
+      const candidates = (queues.get(id) || []).filter(index => !usedPredicted.has(index));
+      const predictedIndex = candidates.find(index => index > cursor) ?? candidates[0] ?? -1;
+      if (predictedIndex >= 0) {
+        usedPredicted.add(predictedIndex);
+        cursor = Math.max(cursor, predictedIndex);
+      }
+      return {
+        ...item,
+        actualIndex,
+        predictedIndex: predictedIndex >= 0 ? predictedIndex : null,
+        alignment: predictedIndex < 0 ? "unexpected" : predictedIndex === actualIndex ? "matched" : "reordered"
+      };
+    });
+    const alignedPredicted = predicted.map((item, index) => ({
+      ...item,
+      predictedIndex: index,
+      actualIndex: alignedActual.find(entry => entry.predictedIndex === index)?.actualIndex ?? null,
+      alignment: usedPredicted.has(index) ? "observed" : "not_observed"
+    }));
+    const firstDivergence = alignedActual.findIndex(item => item.alignment === "unexpected");
+    return {
+      predicted: alignedPredicted,
+      actual: alignedActual,
+      matched: usedPredicted.size,
+      predictedTotal: predicted.length,
+      actualTotal: actual.length,
+      coverage: predicted.length ? Number((usedPredicted.size / predicted.length).toFixed(3)) : 0,
+      firstDivergence: firstDivergence >= 0 ? firstDivergence : null
+    };
   }
 
   function behaviorView(agentId = "", windowHours = 24, sourceLimit = 100, includeHost = false) {
@@ -103,7 +352,8 @@ function startApiServer({
         if (Number(pid) > 0) agentByPid.set(Number(pid), discoveredAgent);
       }
     }
-    const sessionMap = new Map((sessionPolicyEngine?.getSessions?.(false) || []).map(session => [String(session.id), session]));
+    const sessions = sessionPolicyEngine?.getSessions?.(false) || [];
+    const sessionMap = new Map(sessions.map(session => [String(session.id), session]));
     const rawSource = behaviorEvents(new Date(cutoff).toISOString(), normalizedLimit);
     const attributedSource = rawSource.map(event => {
       const detail = event.detail || {};
@@ -121,7 +371,8 @@ function startApiServer({
         }
       };
     });
-    const inWindowSource = attributedSource.filter(event => {
+    const linkedSource = attributedSource.map(event => linkBehaviorEventToSession(event, sessions));
+    const inWindowSource = linkedSource.filter(event => {
       const timestamp = new Date(event.timestamp || event.time || 0).getTime();
       return !timestamp || timestamp >= cutoff;
     });
@@ -209,6 +460,7 @@ function startApiServer({
         serverConnected: Boolean(transport.connected || transport.httpHealthy),
         transport: transport?.getStats?.() || { connected: Boolean(transport?.connected) },
         runtimeHealth: getRuntimeHealth?.() || {},
+        dataQuality: buildDataQuality(events.slice(-500), sensors),
         uptime: process.uptime(),
         stats,
         ruleEngine: ruleEngine?.getStats() || {},
@@ -239,6 +491,11 @@ function startApiServer({
         },
         generatedAt: new Date().toISOString()
       });
+    }
+
+    if (pathname === "/api/diagnostics/data-quality" && req.method === "GET") {
+      const limit = clampInt(url.searchParams.get("limit"), 25, 5000, 500);
+      return ok(buildDataQuality(behaviorEvents(null, limit), sensors));
     }
 
     if (pathname === "/api/enforcement/status" && req.method === "GET") {
@@ -355,6 +612,9 @@ function startApiServer({
       const offset = clampInt(url.searchParams.get("offset"), 0, 100000, 0);
       const verdict = url.searchParams.get("verdict");
       const category = url.searchParams.get("category");
+      const agentId = url.searchParams.get("agentId");
+      const sessionId = url.searchParams.get("sessionId");
+      const windowHours = clampInt(url.searchParams.get("windowHours"), 1, 720, 0);
       if (db) {
         try {
           const conditions = [];
@@ -362,23 +622,49 @@ function startApiServer({
           const params = [];
           if (verdict) { conditions.push("verdict = ?"); params.push(verdict); }
           if (category) { conditions.push("category = ?"); params.push(category); }
+          if (agentId) { conditions.push("agent_id = ?"); params.push(agentId); }
+          if (sessionId) { conditions.push("session_id = ?"); params.push(sessionId); }
+          if (windowHours) { conditions.push("timestamp > datetime('now', ?)"); params.push(`-${windowHours} hours`); }
           const where = conditions.length ? " WHERE " + conditions.join(" AND ") : "";
           const rows = queryAll("SELECT * FROM events" + where + " ORDER BY timestamp DESC LIMIT ? OFFSET ?", [...params, limit, offset]);
           const total = queryOne("SELECT COUNT(*) as c FROM events" + where, params)?.c || 0;
           if (rows.length || total || events.length === 0) return ok({ events: rows.map(parseEventRow), total });
         } catch (_) {}
       }
-      const filtered = events.slice().reverse().filter(event => (!verdict || event.verdict === verdict) && (!category || event.category === category));
+      const cutoff = windowHours ? Date.now() - windowHours * 3600000 : 0;
+      const filtered = events.slice().reverse().filter(event =>
+        (!verdict || event.verdict === verdict) &&
+        (!category || event.category === category) &&
+        (!agentId || event.agentId === agentId) &&
+        (!sessionId || event.sessionId === sessionId) &&
+        (!cutoff || new Date(event.timestamp || event.time || 0).getTime() > cutoff)
+      );
       return ok({ events: filtered.slice(offset, offset + limit), total: filtered.length });
     }
 
     if (pathname === "/api/events/stats" && req.method === "GET") {
       if (!db) return ok({ total: events.length });
+      const windowHours = clampInt(url.searchParams.get("windowHours"), 1, 720, 24);
+      const agentId = url.searchParams.get("agentId");
+      const sessionId = url.searchParams.get("sessionId");
+      const scopeConditions = [];
+      const scopeParams = [];
+      if (agentId) { scopeConditions.push("agent_id = ?"); scopeParams.push(agentId); }
+      if (sessionId) { scopeConditions.push("session_id = ?"); scopeParams.push(sessionId); }
+      const scopeWhere = scopeConditions.length ? " WHERE " + scopeConditions.join(" AND ") : "";
+      const windowConditions = [...scopeConditions, "timestamp > datetime('now', ?)"];
+      const windowParams = [...scopeParams, `-${windowHours} hours`];
+      const windowWhere = " WHERE " + windowConditions.join(" AND ");
       return ok({
-        total: queryOne("SELECT COUNT(*) as c FROM events")?.c || 0,
-        byVerdict: queryAll("SELECT verdict, COUNT(*) as c FROM events GROUP BY verdict"),
-        byCategory: queryAll("SELECT category, COUNT(*) as c FROM events GROUP BY category ORDER BY c DESC"),
-        byHour: queryAll("SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) as hour, COUNT(*) as c FROM events WHERE timestamp > datetime('now', '-24 hours') GROUP BY hour ORDER BY hour")
+        total: queryOne("SELECT COUNT(*) as c FROM events" + scopeWhere, scopeParams)?.c || 0,
+        byVerdict: queryAll("SELECT verdict, COUNT(*) as c FROM events" + scopeWhere + " GROUP BY verdict", scopeParams),
+        byCategory: queryAll("SELECT category, COUNT(*) as c FROM events" + scopeWhere + " GROUP BY category ORDER BY c DESC", scopeParams),
+        windowHours,
+        scope: { agentId: agentId || null, sessionId: sessionId || null },
+        windowTotal: queryOne("SELECT COUNT(*) as c FROM events" + windowWhere, windowParams)?.c || 0,
+        byWindowVerdict: queryAll("SELECT verdict, COUNT(*) as c FROM events" + windowWhere + " GROUP BY verdict", windowParams),
+        byHour: queryAll("SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) as hour, COUNT(*) as c FROM events" + windowWhere + " GROUP BY hour ORDER BY hour", windowParams),
+        byHourVerdict: queryAll("SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) as hour, verdict, COUNT(*) as c FROM events" + windowWhere + " GROUP BY hour, verdict ORDER BY hour, verdict", windowParams)
       });
     }
 
@@ -412,6 +698,7 @@ function startApiServer({
         excludedHostEvents: view.excludedHostEvents,
         scope: url.searchParams.get("includeHost") === "true" ? "agent_and_host" : "agent_only",
         mappingQuality: view.aggregate.mappingQuality,
+        dataQuality: buildDataQuality(view.source, sensors),
         unattributed: agents.filter(item => item.agentId === "unknown"),
         boundary,
         windowHours: clampInt(url.searchParams.get("windowHours"), 1, 720, 24),
@@ -599,7 +886,14 @@ function startApiServer({
 
     if (pathname === "/api/approvals" && req.method === "POST") {
       const body = await readBody(req);
-      const result = sessionPolicyEngine?.resolveApproval?.(body.id, body.decision || "approved", body.ttlMinutes);
+      const result = sessionPolicyEngine?.resolveApproval?.(
+        body.id,
+        body.decision || "approved",
+        body.ttlMinutes,
+        body.scope || "once",
+        body.resolvedBy || "local-admin",
+        body.reason || ""
+      );
       if (!result) return notFound("approval_not_found");
       addEvent("approval", result.decision === "approved" ? "info" : "medium", result.decision === "approved" ? "allow" : "alert", `Approval ${result.decision}`, { approvalId: result.id, sessionId: result.sessionId }, { sessionId: result.sessionId, agentId: result.agent });
       return ok({ ok: true, approval: result });
@@ -621,6 +915,48 @@ function startApiServer({
           redaction: "command_line_secrets_redacted"
         }
       });
+    }
+
+    if (pathname === "/api/decisions" && req.method === "GET") {
+      const limit = clampInt(url.searchParams.get("limit"), 1, 500, 100);
+      const sessionId = url.searchParams.get("sessionId") || "";
+      const agentId = url.searchParams.get("agentId") || "";
+      const verdict = url.searchParams.get("verdict") || "";
+      const sessions = sessionPolicyEngine?.getSessions?.(true, false) || [];
+      const decisions = [];
+      for (const session of sessions) {
+        if (sessionId && String(session.id) !== String(sessionId)) continue;
+        if (agentId && String(session.agent) !== String(agentId)) continue;
+        for (const action of session.actions || []) {
+          const trace = action.detail?.decisionTrace || null;
+          const contract = trace?.decisionContract || null;
+          const actionVerdict = String(contract?.outcome?.verdict || action.verdict || "allow");
+          if (verdict && actionVerdict !== verdict) continue;
+          decisions.push({
+            decisionId: contract?.decisionId || action.decisionId || null,
+            traceId: trace?.traceId || action.traceId || null,
+            sessionId: session.id,
+            agentId: session.agent,
+            turnId: contract?.turnId || session.turnId || null,
+            timestamp: action.timestamp,
+            operation: contract?.operation || action.event,
+            subject: action.subject,
+            verdict: actionVerdict,
+            rule: contract?.outcome?.rule || trace?.final?.rule || action.detail?.rule || null,
+            reason: contract?.outcome?.reason || trace?.final?.reason || action.summary,
+            behaviorAtoms: contract?.behavior?.atoms || trace?.behavior?.atoms || [],
+            boundaries: contract?.boundaries || trace?.behavior?.boundary || null,
+            enforcement: contract?.outcome?.enforcement || trace?.final?.enforcement || null,
+            contractVersion: contract?.contractVersion || contract?.schemaVersion || null
+          });
+        }
+      }
+      decisions.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+      const summary = decisions.reduce((acc, item) => {
+        acc[item.verdict] = (acc[item.verdict] || 0) + 1;
+        return acc;
+      }, { allow: 0, alert: 0, block: 0 });
+      return ok({ decisions: decisions.slice(0, limit), total: decisions.length, summary, contractVersion: "aidr-decision-query-v1" });
     }
 
     if (pathname === "/api/sessions" && req.method === "GET") {
@@ -650,43 +986,110 @@ function startApiServer({
     const orbitMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/orbit$/);
     if (orbitMatch && req.method === "GET") {
       const sessionId = decodeURIComponent(orbitMatch[1]);
-      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 500);
+      const pathLimit = clampInt(url.searchParams.get("pathLimit"), 1, 1000, 300);
       const eventLimit = clampInt(url.searchParams.get("eventLimit"), 1, 1000, 500);
       const session = sessionPolicyEngine?.getSession?.(sessionId);
       if (!session) return notFound("session_not_found");
-      let sessionEvents = behaviorEvents().filter(event => String(event.sessionId || "") === sessionId);
-      if (!sessionEvents.length) sessionEvents = (session.actions || []).map(action => ({ ...action, category: action.event || "system", summary: action.summary, detail: action.detail || {}, sessionId, agentId: session.agent, timestamp: action.timestamp, verdict: action.verdict }));
+      let sessionEvents = behaviorEventsForSession(sessionId, eventLimit);
+      const actionEvents = (session.actions || []).map(action => ({
+        ...action,
+        eventId: action.id || action.eventId,
+        category: action.event || "system",
+        summary: action.summary,
+        detail: action.detail || {},
+        sessionId,
+        agentId: session.agent,
+        timestamp: action.timestamp,
+        verdict: action.verdict,
+        traceId: action.traceId || action.detail?.decisionTrace?.traceId || null,
+        decisionId: action.decisionId || action.detail?.decisionTrace?.decisionContract?.decisionId || null
+      }));
+      const mergedEvents = new Map();
+      [...sessionEvents, ...actionEvents].forEach(event => {
+        const key = event.decisionId
+          || event.eventId
+          || `${event.timestamp || ""}|${event.category || ""}|${event.summary || ""}`;
+        const previous = mergedEvents.get(key);
+        mergedEvents.set(key, previous ? { ...previous, ...event, detail: { ...(previous.detail || {}), ...(event.detail || {}) } } : event);
+      });
+      const currentPrompt = String(session.prompt || session.rawPrompt || "").trim();
+      const currentPromptEntry = (session.promptHistory || [])
+        .filter(entry => !currentPrompt || String(entry.prompt || entry.rawPrompt || "").trim() === currentPrompt)
+        .sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")))[0]
+        || (session.promptHistory || []).slice().sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")))[0];
+      const currentTaskStartedAt = currentPromptEntry?.timestamp || null;
+      sessionEvents = Array.from(mergedEvents.values())
+        .filter(event => !currentTaskStartedAt || String(event.timestamp || "") >= String(currentTaskStartedAt))
+        .slice(-eventLimit);
       sessionEvents = sessionEvents.sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || ""))).map(event => enrichEvent(event, policy, session));
       const aggregate = aggregateEvents(sessionEvents, policy, () => session);
-      const fullActualPath = aggregate.agents.find(item => String(item.agentId) === String(session.agent))?.path || aggregate.agents[0]?.path || [];
-      const actualPath = fullActualPath.length > pathLimit ? fullActualPath.slice(-pathLimit) : fullActualPath;
-      const predictedPath = buildPredictedPath(session);
-      const requestPath = actualPath.filter(event => event.boundaryScope !== "within");
+      const predictedPathBase = buildPredictedPath(session);
+      const rawActualPath = aggregate.agents.find(item => String(item.agentId) === String(session.agent))?.path || aggregate.agents[0]?.path || [];
       const effectivePolicy = session.effectivePolicy || {};
       const organizationBoundary = getOrganizationBoundary(policy);
       const organizationAllowed = new Set(organizationBoundary.allowedAtoms || []);
       const organizationConditional = new Set(organizationBoundary.conditionalAtoms || []);
       const organizationDenied = new Set(organizationBoundary.deniedAtoms || []);
-      const requestedAtoms = Array.from(new Set(predictedPath.map(item => String(item.atomId || "").toUpperCase()).filter(Boolean)));
+      const generatedTaskBoundary = effectivePolicy.taskBoundary && typeof effectivePolicy.taskBoundary === "object"
+        ? effectivePolicy.taskBoundary
+        : {};
+      const requestedAtoms = Array.from(new Set([
+        ...(generatedTaskBoundary.allowedAtoms || []),
+        ...predictedPathBase.map(item => String(item.atomId || "").toUpperCase()).filter(Boolean)
+      ]));
       const taskAuthorization = {
         allowedAtoms: requestedAtoms.filter(id => organizationAllowed.has(id)),
         conditionalAtoms: requestedAtoms.filter(id => organizationConditional.has(id)),
         deniedAtoms: requestedAtoms.filter(id => organizationDenied.has(id) || (!organizationAllowed.has(id) && !organizationConditional.has(id)))
       };
+      const classifiedPredictions = predictedPathBase.map(item => {
+        const id = String(item.atomId || "").toUpperCase();
+        const policyStatus = taskAuthorization.allowedAtoms.includes(id)
+          ? "allow"
+          : taskAuthorization.conditionalAtoms.includes(id) ? "require_approval" : "deny";
+        return {
+          ...item,
+          policyStatus,
+          boundaryScope: policyStatus === "deny" ? "organization" : policyStatus === "require_approval" ? "task" : "within",
+          policyEvidenceId: `task-policy:${policyStatus}:${id}`
+        };
+      });
+      const predictedPath = classifiedPredictions.filter(item => item.policyStatus === "allow");
+      const permissionRequestPath = classifiedPredictions.filter(item => item.policyStatus === "require_approval");
+      const rejectedPredictionPath = classifiedPredictions.filter(item => item.policyStatus === "deny");
+      const fullActualPath = expandActualPathForPrediction(rawActualPath, predictedPath);
+      const actualPath = compactBehaviorPath(fullActualPath, pathLimit);
+      const requestPath = actualPath.filter(event => event.boundaryScope !== "within");
+      const catalogById = new Map(buildCatalog(policy).map(atom => [String(atom.id || "").toUpperCase(), atom]));
+      const requestedTaskLevels = {
+        ...(effectivePolicy.levels || effectivePolicy.domainLevels || deriveTaskLevels(effectivePolicy, 3))
+      };
+      for (const item of predictedPath) {
+        const atom = catalogById.get(String(item.atomId || "").toUpperCase());
+        if (!atom?.domain) continue;
+        requestedTaskLevels[atom.domain] = Math.max(
+          Number(requestedTaskLevels[atom.domain] || 0),
+          Number(atom.baseLevel || item.requiredLevel || item.level || 0)
+        );
+      }
       const taskBoundary = constrainTaskBoundary({
         ...effectivePolicy,
+        ...generatedTaskBoundary,
+        version: generatedTaskBoundary.version || effectivePolicy.taskPolicyRevision || ("task-" + crypto.createHash("sha256").update(JSON.stringify({ sessionId, requestedAtoms })).digest("hex").slice(0, 12)),
         maxLevel: Number.isFinite(Number(effectivePolicy.maxLevel)) ? Number(effectivePolicy.maxLevel) : 3,
-        levels: effectivePolicy.levels || effectivePolicy.domainLevels || deriveTaskLevels(effectivePolicy, 3),
+        levels: requestedTaskLevels,
         ...taskAuthorization,
-        source: "session.effectivePolicy"
+        source: generatedTaskBoundary.source || "session.effectivePolicy"
       }, organizationBoundary);
+      const pathAlignment = alignBehaviorPaths(predictedPath, actualPath);
       const orbit = buildOrbitGraph({
         sessionId,
         agentId: session.agent,
+        currentTaskStartedAt,
         organizationBoundary,
         taskBoundary,
-        predictedPath,
-        actualPath,
+        predictedPath: pathAlignment.predicted,
+        actualPath: pathAlignment.actual,
         requestPath,
         decisionTrace: session.decisionTrace || null,
         events: sessionEvents.slice(-eventLimit)
@@ -700,21 +1103,54 @@ function startApiServer({
           semantic: session.semanticAnalysis || null,
           finalIntent: session.intent
         }) : null);
+      const evidenceChecks = {
+        promptFingerprint: Boolean(intentEvidence?.promptSha256),
+        normalizedGoal: Boolean(intentEvidence?.goal),
+        analyzerIdentity: Boolean(intentEvidence?.source && intentEvidence?.analyzers?.length),
+        policyBoundary: Boolean(taskBoundary?.source && taskBoundary?.version)
+      };
+      const evidenceCompleteness = Object.values(evidenceChecks).filter(Boolean).length / Object.keys(evidenceChecks).length;
+      const explainedCount = classifiedPredictions.filter(item => item.reason && item.evidenceIds?.length && item.derivation?.output).length;
+      const predictionCoverage = classifiedPredictions.length ? explainedCount / classifiedPredictions.length : 0;
+      const analysisConfidence = Math.max(
+        Number(intentEvidence?.risk?.localConfidence || 0),
+        Number(intentEvidence?.risk?.semanticConfidence || 0)
+      );
+      const confidenceLevel = evidenceCompleteness >= 0.75 && predictionCoverage === 1 && analysisConfidence >= 0.7
+        ? "high"
+        : evidenceCompleteness >= 0.5 && predictionCoverage >= 0.7 ? "medium" : "insufficient";
+      const analysisAssessment = {
+        schemaVersion: "aidr-analysis-assessment-v1",
+        evidenceIntegrity: evidenceCompleteness === 1 ? "complete" : evidenceCompleteness >= 0.5 ? "partial" : "insufficient",
+        evidenceCompleteness: Number(evidenceCompleteness.toFixed(2)),
+        analysisConfidence: Number(analysisConfidence.toFixed(2)),
+        predictionCoverage: Number(predictionCoverage.toFixed(2)),
+        confidenceLevel,
+        checks: evidenceChecks,
+        missingEvidence: Object.keys(evidenceChecks).filter(key => !evidenceChecks[key]),
+        explanation: "置信度由证据完整性、规则/模型分析置信度与预测链可解释覆盖率联合计算，不能由预测原子数量单独推出。"
+      };
       return ok({
         sessionId,
         agentId: session.agent,
+        currentTaskStartedAt,
         organizationBoundary,
         taskBoundary,
         taskAuthorization,
         effectivePolicy,
-        predictedPath,
-        actualPath,
+        predictedPath: pathAlignment.predicted,
+        predictedCandidates: classifiedPredictions,
+        permissionRequestPath,
+        rejectedPredictionPath,
+        actualPath: pathAlignment.actual,
         actualPathTotal: fullActualPath.length,
+        pathAlignment,
         requestPath,
         events: sessionEvents.slice(-eventLimit),
         totalEvents: sessionEvents.length,
         intent: session.intent || null,
         intentEvidence,
+        analysisAssessment,
         decisionTrace: session.decisionTrace || null,
         aggregate,
         orbit,
@@ -813,7 +1249,40 @@ function startApiServer({
     if (pathname === "/api/policy/simulate" && req.method === "POST") {
       const body = await readBody(req);
       if (!Array.isArray(body.actions)) return badRequest("actions_array_required");
-      return ok({ results: sessionPolicyEngine?.simulate?.(body.actions, body.policy || {}) || [] });
+      const results = sessionPolicyEngine?.simulate?.(body.actions, body.policy || {}) || [];
+      const verdictOf = item => String(item?.result?.decision?.verdict || item?.result?.verdict || "allow").toLowerCase();
+      const summary = results.reduce((acc, item) => {
+        const verdict = verdictOf(item);
+        acc[verdict] = (acc[verdict] || 0) + 1;
+        acc.total++;
+        return acc;
+      }, { total: 0, allow: 0, alert: 0, block: 0 });
+      return ok({ results, summary, mode: "shadow", generatedAt: new Date().toISOString() });
+    }
+
+    if (pathname === "/api/policy/impact" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!Array.isArray(body.actions)) return badRequest("actions_array_required");
+      const baseline = sessionPolicyEngine?.simulate?.(body.actions, {}) || [];
+      const candidate = sessionPolicyEngine?.simulate?.(body.actions, body.policy || {}) || [];
+      const verdictOf = item => String(item?.result?.decision?.verdict || item?.result?.verdict || "allow").toLowerCase();
+      const transitions = {};
+      const changed = [];
+      for (let index = 0; index < Math.max(baseline.length, candidate.length); index++) {
+        const before = verdictOf(baseline[index]);
+        const after = verdictOf(candidate[index]);
+        const key = `${before}_to_${after}`;
+        transitions[key] = (transitions[key] || 0) + 1;
+        if (before !== after) changed.push({ index, before, after, action: body.actions[index] });
+      }
+      return ok({
+        mode: "shadow_compare",
+        total: body.actions.length,
+        changed: changed.length,
+        transitions,
+        changedActions: changed.slice(0, 100),
+        generatedAt: new Date().toISOString()
+      });
     }
 
     if (pathname === "/api/threat/test" && req.method === "POST") {
@@ -976,6 +1445,7 @@ function parseEventRow(row) {
     source: row.source || detail.source || "agent",
     detail,
     traceId: row.trace_id || detail.traceId || null,
+    decisionId: row.decision_id || detail.decisionId || null,
     parentEventId: row.parent_event_id || detail.parentEventId || null,
     subject: row.subject || detail.subject || row.summary,
     object: row.object || detail.object || null,
@@ -1057,4 +1527,4 @@ function policyTemplates() {
   ];
 }
 
-module.exports = { startApiServer };
+module.exports = { startApiServer, linkBehaviorEventToSession, buildDataQuality, compactBehaviorPath };
