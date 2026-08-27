@@ -1,8 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="preload">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style id="fouc-guard">body{visibility:hidden}.preload *{transition:none!important}</style>
+<script>requestAnimationFrame(function(){document.documentElement.classList.remove("preload");document.head.appendChild(document.createElement("style")).textContent="body{visibility:visible}"});</script>
 <meta name="aidr-ui-revision" content="__AIDR_UI_REVISION__">
 <meta name="aidr-ui-token" content="__AIDR_UI_TOKEN__">
 <title>AIDR Agent Runtime Control Plane Demo</title>
@@ -54,7 +56,7 @@ button{cursor:pointer}
 .content{padding:25px 30px 44px;max-width:none}
 .page{display:none}
 .page.active{display:block}
-.page-head{display:none!important}
+.page-head{display:none}
 .page-head h1{font-size:21px;margin:0 0 5px}
 .page-head p{margin:0;color:var(--muted);font-size:12px}
 .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -199,8 +201,8 @@ tbody tr:hover{background:#fbfdfd}
 @media(max-width:1180px){.posture{grid-template-columns:190px minmax(0,1fr)}.signal-list{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr)}.session-layout{grid-template-columns:250px minmax(0,1fr)}.evidence{grid-column:1/-1}.policy-layout,.behavior-layout,.semantic-layout,.agent-details{grid-template-columns:1fr}.system-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:780px){.sidebar{width:64px}.brand{padding:16px 10px}.brand-title{font-size:0}.brand-title:after{content:"A";font-size:20px;color:#fff}.brand-sub,.nav button span:not(.count),.sidebar-foot{display:none}.nav button{text-align:center;padding:11px 4px}.main{width:calc(100% - 64px);margin-left:64px}.topbar{padding:0 16px}.top-title{font-size:15px}.top-meta{display:none}.content{padding:18px 12px 32px}.page-head{display:block}.page-head .toolbar{margin-top:12px}.grid-4,.grid-3,.grid-2,.behavior-kpis,.form-grid{grid-template-columns:1fr}.posture{grid-template-columns:1fr}.signal-list{grid-template-columns:1fr}.session-layout{grid-template-columns:1fr}.session-list{max-height:none}.cap-grid{grid-template-columns:repeat(2,1fr)}.policy-row{grid-template-columns:1fr 1fr}.policy-row .policy-controls{grid-column:1/-1}.system-grid{grid-template-columns:1fr}.event-row{grid-template-columns:62px 1fr 78px}.event-desc{grid-column:2/-1}.abg-orbit-layout,.abg-catalog{grid-template-columns:1fr}.abg-atom-form{grid-template-columns:1fr 1fr}.abg-atom-form button{grid-column:1/-1}}
 .abg-quality-strip{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0;padding:9px 12px;border:1px solid #d8e3e8;background:#f7fafb;color:#526678;font-size:12px}.abg-quality-strip strong{color:#b42318}
-.abg-orbit-box{position:relative;min-height:480px!important;background:linear-gradient(180deg,#f8fcfd,#eef5f7)!important;border-color:#c9dbe2!important}.abg-orbit-box svg{position:relative;z-index:1;width:100%!important;height:480px!important;min-height:480px!important;cursor:default!important;touch-action:auto!important}
-@media(max-width:780px){.topbar{padding:8px 16px;align-items:flex-start}.top-title{padding-top:8px}.top-actions{flex-wrap:wrap}.top-context-tools{max-width:calc(100vw - 115px);overflow:auto}.page-head{display:none!important}.abg-orbit-box,.abg-orbit-box svg{height:390px!important;min-height:390px!important}}
+.abg-orbit-box{position:relative;min-height:480px!important;background:linear-gradient(180deg,#f8fcfd,#eef5f7)!important;border-color:#c9dbe2!important}.abg-orbit-box svg{position:relative;z-index:1;width:100%!important;height:480px!important;min-height:480px!important;touch-action:auto!important}
+@media(max-width:780px){.topbar{padding:8px 16px;align-items:flex-start}.top-title{padding-top:8px}.top-actions{flex-wrap:wrap}.top-context-tools{max-width:calc(100vw - 115px);overflow:auto}.page-head{display:none}.abg-orbit-box,.abg-orbit-box svg{height:390px!important;min-height:390px!important}}
 </style>
 </head>
 <body>
@@ -261,7 +263,7 @@ tbody tr:hover{background:#fbfdfd}
                 <div class="trace-row"><div class="trace-num">02</div><div class="trace-kind">能力需求</div><div class="trace-detail">workspace.read · file.read<span>未发现 shell、写文件或外部网络需求。</span></div><span class="trace-tag">scope</span></div>
                 <div class="trace-row"><div class="trace-num">03</div><div class="trace-kind">风险判断</div><div class="trace-detail">Prompt Injection：未命中；数据外传：未命中<span>意图与历史行为基线一致。</span></div><span class="trace-tag">risk</span></div>
               </div></div></div>
-              <div class="panel" style="margin-top:14px;box-shadow:none"><div class="panel-head"><div><h2>生成的最小权限策略</h2><p>策略版本 policy-2.2.5 · 由意图分析结果生成。</p></div><button class="btn" id="showPolicy">查看策略内容</button></div><div class="panel-body"><div class="cap-grid"><div class="cap"><div class="cap-label">允许能力</div><div class="cap-value up">file.read</div></div><div class="cap"><div class="cap-label">拒绝能力</div><div class="cap-value bad">file.write · shell</div></div><div class="cap"><div class="cap-label">网络边界</div><div class="cap-value">deny external</div></div><div class="cap"><div class="cap-label">审批阈值</div><div class="cap-value">无</div></div></div><div class="codebox" id="policyPreview" style="display:none;margin-top:12px">{
+              <div class="panel" style="margin-top:14px;box-shadow:none"><div class="panel-head"><div><h2>生成的最小权限策略</h2><p>策略版本 policy-2.2.5 · 由意图分析结果生成。</p></div><button class="btn" id="showPolicy">查看策略内容</button></div><div class="panel-body" id="leastPrivilegeBody"><div class="cap-grid"><div class="cap"><div class="cap-label">允许能力</div><div class="cap-value up" id="capAllow">file.read</div></div><div class="cap"><div class="cap-label">拒绝能力</div><div class="cap-value bad" id="capDeny">file.write · shell</div></div><div class="cap"><div class="cap-label">网络边界</div><div class="cap-value" id="capNetwork">deny external</div></div><div class="cap"><div class="cap-label">审批阈值</div><div class="cap-value" id="capApproval">无</div></div></div><div class="codebox" id="policyPreview" style="display:none;margin-top:12px"><pre id="policyPreviewCode">{
   "mode": "enforce",
   "allow": ["workspace.read", "file.read:README.md"],
   "deny": ["file.write", "shell.exec", "network.external"],
@@ -292,7 +294,7 @@ tbody tr:hover{background:#fbfdfd}
 
        <div class="page" id="page-behavior">
         <div class="page-head"><div><h1>行为监控</h1><p>聚合时间窗口内所有 Agent 的行为事件、原子命中、风险偏移和处置结果。</p></div><div class="toolbar"><button class="btn" id="behaviorExport">导出事件</button></div></div>
-        <div class="behavior-kpis"><div class="behavior-kpi panel" data-behavior-metric="events" role="button" tabindex="0"><span class="eyebrow">Agent 行为事件</span><strong>0</strong><span class="small muted">点击查看 Agent 分布</span></div><div class="behavior-kpi panel" data-behavior-metric="uniqueAtoms" role="button" tabindex="0"><span class="eyebrow">命中原子类型</span><strong class="warn">0</strong><span class="small muted">按行为原子 ID 去重</span></div><div class="behavior-kpi panel" data-behavior-metric="atomHits" role="button" tabindex="0"><span class="eyebrow">原子命中次数</span><strong>0</strong><span class="small muted">含一对多映射结果</span></div><div class="behavior-kpi panel" data-behavior-metric="alerts" role="button" tabindex="0"><span class="eyebrow">告警 / 审批</span><strong class="warn">0</strong><span class="small muted">点击查看待处置项</span></div><div class="behavior-kpi panel" data-behavior-metric="blocks" role="button" tabindex="0"><span class="eyebrow">强制阻断</span><strong class="bad">0</strong><span class="small muted">点击查看阻断证据</span></div></div>
+        <div class="behavior-kpis"><div class="behavior-kpi panel" data-behavior-metric="events" role="button" tabindex="0"><span class="eyebrow">Agent 行为事件</span><strong>—</strong><span class="small muted">加载中</span></div><div class="behavior-kpi panel" data-behavior-metric="uniqueAtoms" role="button" tabindex="0"><span class="eyebrow">命中原子类型</span><strong class="warn">—</strong><span class="small muted">加载中</span></div><div class="behavior-kpi panel" data-behavior-metric="atomHits" role="button" tabindex="0"><span class="eyebrow">原子命中次数</span><strong>—</strong><span class="small muted">加载中</span></div><div class="behavior-kpi panel" data-behavior-metric="alerts" role="button" tabindex="0"><span class="eyebrow">告警 / 审批</span><strong class="warn">—</strong><span class="small muted">加载中</span></div><div class="behavior-kpi panel" data-behavior-metric="blocks" role="button" tabindex="0"><span class="eyebrow">强制阻断</span><strong class="bad">—</strong><span class="small muted">加载中</span></div></div>
         <div class="behavior-layout section-gap"><div class="panel"><div class="panel-head"><div><h2>实时行为事件</h2><p>单行是一个可审计事件，可继续展开为关联链。</p></div><div class="toolbar"><button class="choice active" data-event-filter="all">全部</button><button class="choice" data-event-filter="block">阻断</button><button class="choice" data-event-filter="drift">偏移</button></div></div><div class="event-list" id="eventList"><div class="event-row" data-kind="block"><span class="event-time">14:18:09</span><span class="event-agent">Hermes</span><span class="event-desc">读取 .env → 访问 SSH key → 请求外部上传</span><span class="badge block">BLOCK</span></div><div class="event-row" data-kind="drift"><span class="event-time">14:17:43</span><span class="event-agent">OpenCode</span><span class="event-desc">能力从 file.read 扩展到 network.request</span><span class="badge hold">DRIFT</span></div><div class="event-row" data-kind="block"><span class="event-time">14:16:28</span><span class="event-agent">OpenCode</span><span class="event-desc">访问未在白名单中的外部 URL</span><span class="badge hold">HOLD</span></div><div class="event-row" data-kind="all"><span class="event-time">14:15:52</span><span class="event-agent">Codex</span><span class="event-desc">读取 README.md，策略 workspace-read 命中</span><span class="badge allow">ALLOW</span></div><div class="event-row" data-kind="drift"><span class="event-time">14:13:14</span><span class="event-agent">OpenCode</span><span class="event-desc">MCP 工具列表新增 browser.fetch</span><span class="badge hold">DRIFT</span></div></div></div>
           <div class="panel"><div class="panel-head"><div><h2>行为模式聚合</h2><p>将多个事件关联为运营对象。</p></div><span class="badge info">5 patterns</span></div><div class="panel-body"><div class="pattern"><div><div class="pattern-title">凭据读取 + 外部网络</div><div class="pattern-sub">Hermes · 2 个会话 · 触发 secret-read-deny</div></div><span class="badge block">BLOCKED</span></div><div class="pattern"><div><div class="pattern-title">工具能力扩展</div><div class="pattern-sub">OpenCode · 3 个会话 · 需要复核 MCP</div></div><span class="badge hold">REVIEW</span></div><div class="pattern"><div><div class="pattern-title">外部 URL 增长</div><div class="pattern-sub">OpenCode · 10 个域名 · 7 个未在白名单</div></div><span class="badge hold">HOLD</span></div><div class="pattern"><div><div class="pattern-title">工作区只读基线</div><div class="pattern-sub">Codex · 842 次事件 · 未发现偏移</div></div><span class="badge allow">NORMAL</span></div></div></div></div>
         </div>
@@ -331,10 +333,24 @@ tbody tr:hover{background:#fbfdfd}
   document.querySelectorAll(".session-item[data-session]").forEach(function(item){item.addEventListener("click",function(){
     document.querySelectorAll(".session-item").forEach(function(row){row.classList.remove("active")});item.classList.add("active");
     var type=item.getAttribute("data-session");
-    var heading=document.getElementById("sessionHeading"),prompt=document.getElementById("sessionPrompt"),verdict=document.getElementById("sessionVerdict");
-    if(type==="opencode"){heading.textContent="OpenCode · 重构 adapter，并运行单元测试";verdict.textContent="HOLD · MEDIUM";verdict.className="badge hold"}
-    else if(type==="hermes"){heading.textContent="Hermes · 尝试读取凭据并上传";verdict.textContent="BLOCK · HIGH";verdict.className="badge block"}
-    else{heading.textContent="OpenAI Codex · Read README.md and summarize it";verdict.textContent="ALLOW · LOW";verdict.className="badge allow"}
+    var heading=document.getElementById("sessionHeading"),verdict=document.getElementById("sessionVerdict");
+    var capAllow=document.getElementById("capAllow"),capDeny=document.getElementById("capDeny"),capNetwork=document.getElementById("capNetwork"),capApproval=document.getElementById("capApproval");
+    var policyCode=document.getElementById("policyPreviewCode");
+    if(type==="opencode"){
+      heading.textContent="OpenCode · 重构 adapter，并运行单元测试";verdict.textContent="HOLD · MEDIUM";verdict.className="badge hold";
+      capAllow.textContent="file.read · file.write · shell.test";capDeny.textContent="network.external";capNetwork.textContent="审批外部请求";capApproval.textContent="MCP 工具需复核";
+      if(policyCode)policyCode.textContent='{\n  "mode":"enforce",\n  "allow":["workspace.read","workspace.write","shell.test"],\n  "deny":["network.external","credential.read"],\n  "approval":["mcp.invoke:unknown"]\n}';
+    }
+    else if(type==="hermes"){
+      heading.textContent="Hermes · 尝试读取凭据并上传";verdict.textContent="BLOCK · HIGH";verdict.className="badge block";
+      capAllow.textContent="workspace.read";capDeny.textContent="file.write · shell · network · credential";capNetwork.textContent="禁止所有外部流量";capApproval.textContent="任何扩展均阻断";
+      if(policyCode)policyCode.textContent='{\n  "mode":"block",\n  "allow":["workspace.read"],\n  "deny":["*"],\n  "approval":[]\n}';
+    }
+    else{
+      heading.textContent="OpenAI Codex · Read README.md and summarize it";verdict.textContent="ALLOW · LOW";verdict.className="badge allow";
+      capAllow.textContent="file.read";capDeny.textContent="file.write · shell";capNetwork.textContent="deny external";capApproval.textContent="无";
+      if(policyCode)policyCode.textContent='{\n  "mode":"enforce",\n  "allow":["workspace.read","file.read:README.md"],\n  "deny":["file.write","shell.exec","network.external"],\n  "approval":[]\n}';
+    }
     showToast("已切换到 "+type+" 会话证据");
   })});
   document.getElementById("showPolicy").addEventListener("click",function(){var el=document.getElementById("policyPreview");el.style.display=el.style.display==="none"?"block":"none";showToast(el.style.display==="block"?"已展开策略内容":"已收起策略内容")});

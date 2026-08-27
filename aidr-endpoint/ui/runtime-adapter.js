@@ -499,9 +499,11 @@
 
   function renderSessionTaskPolicy(snapshot) {
     var preview = document.getElementById("policyPreview");
-    var button = document.getElementById("showPolicy");
-    var panel = button && button.closest(".panel");
+    var body = document.getElementById("leastPrivilegeBody");
+    var panel = body && body.closest(".panel");
     if (!panel || !preview) return;
+    // Guard: prevent panel from being hidden by runtime DOM operations
+    if (!panel.offsetParent) { panel.style.display = "block"; panel.style.visibility = "visible"; }
     var effective = snapshot && snapshot.effectivePolicy || {};
     var task = snapshot && snapshot.taskAuthorization || {};
     var capabilities = effective.capabilities || {};
@@ -511,10 +513,10 @@
     var conditionalAtoms = task.conditionalAtoms || effective.conditionalAtoms || [];
     var deniedAtoms = task.deniedAtoms || effective.deniedAtoms || [];
     var values = panel.querySelectorAll(".cap-value");
-    if (values[0]) values[0].textContent = enabledCapabilities.join(" · ") || allowedAtoms.join(" · ") || "无";
-    if (values[1]) values[1].textContent = deniedCapabilities.join(" · ") || deniedAtoms.join(" · ") || "无";
+    if (values[0]) values[0].textContent = enabledCapabilities.join(" · ") || allowedAtoms.join(" · ") || values[0].textContent || "无";
+    if (values[1]) values[1].textContent = deniedCapabilities.join(" · ") || deniedAtoms.join(" · ") || values[1].textContent || "无";
     if (values[2]) values[2].textContent = (effective.allowedDomains || []).join(" · ") || (capabilities.network ? "仅任务声明域名" : "禁止外部网络");
-    if (values[3]) values[3].textContent = conditionalAtoms.length ? conditionalAtoms.length + " 个行为原子需审批" : "无";
+    if (values[3]) values[3].textContent = conditionalAtoms.length ? conditionalAtoms.length + " 个行为原子需审批" : values[3].textContent || "无";
     var subtitle = panel.querySelector(".panel-head p");
     if (subtitle) subtitle.textContent = "与当前会话任务边界使用同一份 session.effectivePolicy 快照。";
     preview.textContent = JSON.stringify({
