@@ -14,6 +14,8 @@ Copy-Item -Recurse -Force "$root\aidr-server\src","$root\aidr-server\public","$r
 New-Item -ItemType Directory -Force -Path "$stage\aidr-endpoint\ui" | Out-Null
 Copy-Item -Force "$root\aidr-endpoint\ui\index.html","$root\aidr-endpoint\ui\runtime-adapter.js","$root\aidr-endpoint\ui\abgc.js" -Destination "$stage\aidr-endpoint\ui"
 New-Item -ItemType Directory -Force -Path (Split-Path $output) | Out-Null
-tar -czf $output -C $stageRoot "aidr-server-linux"
+$tarExe = "$env:SystemRoot\System32\tar.exe"
+if (-not (Test-Path $tarExe)) { $tarExe = "tar" }
+& $tarExe -czf $output -C $stageRoot "aidr-server-linux"
 if ($LASTEXITCODE -ne 0) { throw "tar failed with exit code $LASTEXITCODE" }
 Write-Output $output

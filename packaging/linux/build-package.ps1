@@ -16,6 +16,8 @@ Copy-Item -LiteralPath $installReadme.FullName -Destination "$stage\INSTALL-READ
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $archive = Join-Path (Resolve-Path $OutputDirectory) "aidr-endpoint-linux.tar.gz"
 if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
-tar -czf $archive -C (Split-Path $stage -Parent) (Split-Path $stage -Leaf)
+$tarExe = "$env:SystemRoot\System32\tar.exe"
+if (-not (Test-Path $tarExe)) { $tarExe = "tar" }
+& $tarExe -czf $archive -C (Split-Path $stage -Parent) (Split-Path $stage -Leaf)
 if ($LASTEXITCODE -ne 0) { throw "tar failed with exit code $LASTEXITCODE" }
 Write-Output $archive

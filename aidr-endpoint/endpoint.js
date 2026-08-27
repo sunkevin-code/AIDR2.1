@@ -779,7 +779,7 @@ function startHealthServer(onListening) {
     stopAgent();
     process.exit(error.code === "EADDRINUSE" ? 0 : 1);
   });
-  server.listen(HEALTH_PORT, "127.0.0.1", () => {
+  server.listen(HEALTH_PORT, "0.0.0.0", () => {
     log(`Health listening on ${HEALTH_PORT}`);
     onListening();
   });
@@ -842,7 +842,7 @@ function startUiServer() {
       return sendJson(res, error.status || 503, { error: error.message || "agent_unavailable" });
     }
   });
-  server.listen(UI_PORT, "127.0.0.1", () => log(`Control plane listening on ${UI_PORT}`));
+  server.listen(UI_PORT, "0.0.0.0", () => log(`Control plane listening on ${UI_PORT}`));
 }
 
 function isMutation(method) {

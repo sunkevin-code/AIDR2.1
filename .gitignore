@@ -31,6 +31,7 @@ aidr-agent-installer/dist/*.xor
 **/*.blob
 **/*.xor
 output/
+.tmp/
 # Local browser/debug artifacts
 .tmp-*/
 *.png
