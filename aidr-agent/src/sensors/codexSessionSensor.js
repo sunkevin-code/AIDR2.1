@@ -332,6 +332,10 @@ class CodexSessionSensor {
     if (record.type === "event_msg" && payload.type === "user_message") {
       return typeof payload.message === "string" ? payload.message : null;
     }
+    // Codex v0.14x+ rollout 格式：用户消息是 response_item / message / role=user
+    if (record.type === "response_item" && payload.type === "message" && String(payload.role || "").toLowerCase() === "user") {
+      return this._extractContentText(payload.content) || null;
+    }
     return null;
   }
 

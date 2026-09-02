@@ -412,6 +412,8 @@ class TransportClient {
     this._deliverReliable({
       type: "session_start", agentId: this.policy.agentId, sessionId: data.sessionId,
       threadId: data.threadId, submissionId: data.submissionId,
+      agent: data.agent || data.agentType || null,
+      agentLabel: data.agentLabel || null,
       prompt: this.policy.privacy?.uploadRawPrompts === true ? prompt : prompt.slice(0, 180),
       promptHash: this._hash(prompt), promptLength: prompt.length, timestamp: data.timestamp
     });

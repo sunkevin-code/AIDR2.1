@@ -215,7 +215,8 @@ tbody tr:hover{background:#fbfdfd}
       <button data-page="agents"><span>Agent发现</span><span class="count">3</span></button>
       <button data-page="policy"><span>策略中心</span><span class="count">8</span></button>
       <button data-page="behavior"><span>行为监控</span><span class="count">12</span></button>
-      <button data-page="semantic"><span>语义模型</span></button>
+      <button data-page="policymodel"><span>策略模型</span></button>
+      <button data-page="polsim"><span>策略模拟</span></button>
       <button data-page="system"><span>系统</span></button>
     </nav>
     <div class="sidebar-foot"><div><span class="health-dot"></span>AIDR standalone</div><div id="endpointBuildLabel">Endpoint 正在连接 · policy 2.2.5</div><div>本地数据源已连接</div></div>
@@ -299,11 +300,72 @@ tbody tr:hover{background:#fbfdfd}
           <div class="panel"><div class="panel-head"><div><h2>行为模式聚合</h2><p>将多个事件关联为运营对象。</p></div><span class="badge info">5 patterns</span></div><div class="panel-body"><div class="pattern"><div><div class="pattern-title">凭据读取 + 外部网络</div><div class="pattern-sub">Hermes · 2 个会话 · 触发 secret-read-deny</div></div><span class="badge block">BLOCKED</span></div><div class="pattern"><div><div class="pattern-title">工具能力扩展</div><div class="pattern-sub">OpenCode · 3 个会话 · 需要复核 MCP</div></div><span class="badge hold">REVIEW</span></div><div class="pattern"><div><div class="pattern-title">外部 URL 增长</div><div class="pattern-sub">OpenCode · 10 个域名 · 7 个未在白名单</div></div><span class="badge hold">HOLD</span></div><div class="pattern"><div><div class="pattern-title">工作区只读基线</div><div class="pattern-sub">Codex · 842 次事件 · 未发现偏移</div></div><span class="badge allow">NORMAL</span></div></div></div></div>
         </div>
 
-      <div class="page" id="page-semantic">
-        <div class="page-head"><div><h1>语义模型</h1><p>配置 Prompt 意图分析和动态策略生成模型。密钥仅保存在本地 Endpoint。</p></div><div class="toolbar"><span class="badge allow">服务正常</span><button class="btn primary">保存并生效</button></div></div>
-        <div class="semantic-layout"><div class="panel"><div class="panel-head"><div><h2>模型供应商</h2><p>选择一个供应商后配置模型参数。</p></div><button class="btn">新增</button></div><div class="panel-body"><div class="provider active" data-provider="local"><div><h3>本地语义模型</h3><p>Qwen2.5-3B-Instruct · localhost</p></div><span class="badge allow">已连接</span></div><div class="provider" data-provider="deepseek"><div><h3>DeepSeek</h3><p>deepseek-chat · api.deepseek.com</p></div><span class="badge neutral">已配置</span></div><div class="provider" data-provider="openai"><div><h3>OpenAI</h3><p>gpt-4.1-mini · api.openai.com</p></div><span class="badge neutral">未启用</span></div><div class="provider" data-provider="ollama"><div><h3>Ollama</h3><p>自定义本地运行时</p></div><span class="badge neutral">未连接</span></div><div class="evidence-block" style="margin-top:18px"><div class="evidence-label">当前路由</div><div class="evidence-value">Prompt 分析：本地模型<br>策略生成：本地模型 → 规则校验 → 人工审批</div></div></div></div>
-          <div class="panel"><div class="panel-head"><div><h2 id="modelTitle">本地语义模型</h2><p>模型配置和决策模板</p></div><span class="badge info" id="modelStatus">LOCAL · READY</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Provider</label><select class="select" style="width:100%" id="providerSelect"><option>Local</option><option>DeepSeek</option><option>OpenAI</option><option>Ollama</option></select></div><div class="field"><label>Model</label><input class="input" id="modelInput" value="Qwen2.5-3B-Instruct"></div><div class="field full"><label>API Base URL</label><input class="input" id="apiInput" value="http://127.0.0.1:11434/v1"></div><div class="field"><label>Temperature</label><input class="input" value="0.1"></div><div class="field"><label>Timeout / Retry</label><input class="input" value="3000 ms / 2"></div><div class="field full"><label>提示词分析模板</label><textarea class="textarea">你是 AIDR 意图分析器。输出任务目标、所需能力、资源边界、数据敏感级别、潜在注入和置信度。</textarea></div><div class="field full"><label>动态策略生成模板</label><textarea class="textarea">仅根据结构化意图生成最小权限策略；默认拒绝未声明能力；外部网络、凭据和批量写入必须返回 approval。</textarea></div></div><div class="semantic-test"><div><strong>连接测试</strong><div class="latency" id="semanticLatency">最近测试：128 ms · confidence 0.91</div></div><button class="btn primary" id="testSemantic">测试模型</button></div></div></div></div>
-        <div class="panel section-gap"><div class="panel-head"><div><h2>语义决策运行统计</h2><p>只在本页展示完整模型运行状态，其他页面显示简短标签。</p></div><span class="small muted">最近 24 小时</span></div><div class="panel-body"><div class="grid grid-4"><div class="kv"><label>分析请求</label><strong>684</strong></div><div class="kv"><label>成功率</label><strong class="up">99.4%</strong></div><div class="kv"><label>平均延迟</label><strong>128 ms</strong></div><div class="kv"><label>Fallback</label><strong>规则引擎 4 次</strong></div></div></div></div>
+      <div class="page" id="page-policymodel">
+        <div class="page-head"><div><h1>策略模型</h1><p>离线意图分类引擎（mmBERT / TinyBERT + intent_head）· 模型参数实测 · 语句类型 → AIDR 行为原子映射。</p></div><div class="toolbar"><span class="badge neutral" id="pmStudioStatus">Model Studio 连接中…</span><button class="btn primary" id="pmRefresh">刷新模型</button></div></div>
+
+        <div class="panel section-gap"><div class="panel-head"><div><h2>模型注册表</h2><p>本地离线编码器与远程 API 引擎 · 磁盘 / 参数 / 运行内存 / CPU 资源为 Model Studio 实测值。</p></div><span class="small muted" id="pmModelCount"></span></div>
+          <div class="panel-body" style="padding:5px 17px">
+            <div class="grid grid-4" style="margin-bottom:10px" id="pmHostInfo"></div>
+            <div class="table-wrap"><table><thead><tr><th>模型</th><th>引擎</th><th>可用</th><th>默认</th><th>磁盘大小</th><th>参数数量</th><th>数据类型</th><th>运行内存</th><th>加载 / 推理</th><th>实测说明</th><th>操作</th></tr></thead><tbody id="pmModelTable"><tr><td colspan="11" style="text-align:center;color:var(--muted)">加载中…</td></tr></tbody></table></div>
+          </div>
+        </div>
+
+        <div class="panel section-gap"><div class="panel-head"><div><h2>语句类型 → AIDR 行为原子映射</h2><p>来自 Model Studio 策略模板 v2.0（policy_mapper DEFAULT_DESIGN）· 编辑原子后保存，策略生成与模拟将使用最新映射。</p></div><span class="badge allow" id="pmTemplateBadge">v2.0</span></div>
+          <div class="panel-body" style="padding:5px 17px"><div class="table-wrap"><table class="table"><thead><tr><th style="width:150px">语句类型</th><th style="width:80px">标签</th><th style="width:70px">审批</th><th>行为原子（逗号分隔）</th></tr></thead><tbody id="pmTemplateTable"></tbody></table></div>
+            <div class="row" style="gap:8px;margin-top:12px;justify-content:flex-end"><span class="small muted" id="pmMappingStatus"></span><button class="btn primary" id="pmMappingSave">保存映射</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page" id="page-polsim">
+        <div class="page-head"><div><h1>策略模拟</h1><p>输入 Agent 提示词 → 离线意图分类 → 最小权限策略（语句 / 行为原子 / 路径作用域 / AIDR policyRules / IAM）。</p></div><div class="toolbar"><span class="small muted" id="polsimEngine"></span><button class="btn" id="polsimSample">填入示例</button></div></div>
+
+        <div class="panel section-gap"><div class="panel-head"><div><h2>默认测试用例</h2><p>按风险分级 · 下拉选择自动填入提示词并生成策略（与 Model Studio 用例一致）。</p></div><span class="badge info">SIM CASES</span></div>
+          <div class="panel-body"><select class="select" id="polsimCases" style="width:100%;max-width:560px"><option value="">—— 选择默认测试用例 ——</option></select></div>
+        </div>
+
+        <div class="grid grid-2 section-gap">
+          <div class="panel"><div class="panel-head"><div><h2>提示词</h2><p>将发送给 Agent 的任务描述。</p></div><span class="badge info">INPUT</span></div>
+            <div class="panel-body"><textarea class="textarea" id="polsimPrompt" style="min-height:170px" placeholder="你是数据分析助手。读取 /home/user/data 下的 CSV，用 pandas 分析，结果写入 /home/user/reports/。必要时访问 https://api.example.com 获取汇率数据。"></textarea>
+              <div class="row" style="gap:8px;margin-top:12px;align-items:center">
+                <select class="select" id="polsimModel" style="max-width:220px"></select>
+                <select class="select" id="polsimFormat" style="max-width:210px">
+                  <option value="full">完整输出（语句+原子+AIDR+IAM）</option>
+                  <option value="aidr" selected>仅 AIDR policyRules</option>
+                  <option value="json">仅策略 JSON</option>
+                  <option value="iam">仅 IAM 格式</option>
+                </select>
+                <button class="btn primary" id="polsimRun">生成最小权限策略</button>
+              </div>
+              <div class="row" style="gap:8px;margin-top:10px;align-items:center"><span class="small muted" id="polsimLatency"></span><span class="small muted" id="polsimIssues" style="color:#b42318"></span></div>
+            </div>
+          </div>
+          <div class="panel"><div class="panel-head"><div><h2>意图解析</h2><p>离线模型输出的最小权限意图。</p></div><span class="badge info" id="polsimIntentBadge">OFFLINE</span></div>
+            <div class="panel-body" id="polsimIntent" style="padding:5px 17px"><div class="evidence-block"><div class="evidence-label">等待输入</div><div class="evidence-value">输入提示词或选择默认测试用例。</div></div></div>
+          </div>
+        </div>
+
+        <div class="panel section-gap"><div class="panel-head"><div><h2>① 策略语句（最小权限）</h2><p>意图 → tool:operation 语句 · 路径作用域。</p></div><span class="small muted" id="polsimStmtCount"></span></div>
+          <div class="panel-body" id="polsimStatements" style="padding:5px 17px"><div class="evidence-block"><div class="evidence-label">策略未生成</div><div class="evidence-value">模拟结果将在这里展示。</div></div></div>
+        </div>
+
+        <div class="grid grid-2 section-gap">
+          <div class="panel"><div class="panel-head"><div><h2>② AIDR 行为原子映射</h2><p>语句 → 行为原子 · 等级 · 风险 · 路径作用域。</p></div><span class="small muted" id="polsimAtomsCount"></span></div>
+            <div class="panel-body" id="polsimAtoms" style="padding:5px 17px"><div class="evidence-block"><div class="evidence-label">等待模拟</div><div class="evidence-value">授权原子、等级、高风险与资源范围将在这里展示。</div></div></div>
+          </div>
+          <div class="panel"><div class="panel-head"><div><h2>③ 行为原子空间图</h2><p>授权原子在 9 域权限空间的分布（实时渲染）。</p></div><span class="small muted">ORBIT</span></div>
+            <div class="panel-body" id="polsimGraph" style="padding:5px 17px"><div class="evidence-block"><div class="evidence-label">等待模拟</div><div class="evidence-value">行为原子空间图将在这里展示。</div></div></div>
+          </div>
+        </div>
+
+        <div class="grid grid-2 section-gap">
+          <div class="panel"><div class="panel-head"><div><h2>④ AIDR policyRules（可直接下发）</h2><p>组织/任务边界 · 策略规则 · 决策追踪。</p></div><span class="small muted" id="polsimPolicyId"></span></div>
+            <div class="panel-body" id="polsimResult" style="padding:5px 17px"><div class="evidence-block"><div class="evidence-label">策略未生成</div><div class="evidence-value">AIDR policyRules 与边界信息将在这里展示。</div></div></div>
+          </div>
+          <div class="panel"><div class="panel-head"><div><h2>⑤ IAM 格式 / 完整策略 JSON</h2><p>IAM 语句与完整策略（含决策追踪）。</p></div><button class="btn ghost" id="polsimCopy">复制全部结果</button></div>
+            <div class="panel-body" id="polsimJson" style="padding:5px 17px"><div class="evidence-block"><div class="evidence-label">等待模拟</div><div class="evidence-value">IAM 与完整 JSON 将在这里展示。</div></div></div>
+          </div>
+        </div>
       </div>
 
       <div class="page" id="page-system">

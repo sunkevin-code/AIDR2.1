@@ -31,7 +31,7 @@
     if (!document.getElementById("aidr-abg-runtime-style")) {
       var style = document.createElement("style");
       style.id = "aidr-abg-runtime-style";
-      style.textContent = ".abg-orbit-box{position:relative;min-height:360px;overflow:hidden;background:radial-gradient(circle at 50% 50%,#f8fcfc 0,#f4f8f9 54%,#edf3f5 100%)}.abg-orbit-box svg{display:block;width:100%;height:100%;min-height:360px;touch-action:none;cursor:grab}.abg-orbit-box svg:active{cursor:grabbing}.abg-orbit-box:fullscreen{background:#071018;padding:18px}.abg-orbit-box:fullscreen svg{height:calc(100vh - 36px);min-height:0}.abg-orbit-box .abg-node{cursor:pointer;transition:filter .15s,stroke-width .15s}.abg-orbit-box .abg-node:hover,.abg-orbit-box .abg-node.selected{stroke:#173045;stroke-width:3;filter:drop-shadow(0 0 3px rgba(23,48,69,.35))}.abg-orbit-box .abg-node-label{pointer-events:none}.abg-node-detail{margin-top:10px;border:1px solid #cde2e6;border-radius:6px;background:#f8fbfc;padding:10px;font-size:11px;line-height:1.55}.abg-node-detail b{color:#173045}.abg-replay{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0}.abg-replay input{flex:1;min-width:120px;accent-color:#147f73}.abg-fullscreen{position:absolute;right:10px;top:10px;z-index:2}.abg-space-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#687587}.abg-space-legend span{display:inline-flex;align-items:center;gap:5px}.abg-space-legend i{display:inline-block;width:18px;height:3px;border-radius:2px}.abg-ring{fill:none;stroke:#c9d8de;stroke-width:1}.abg-axis{stroke:#d5e1e5;stroke-width:1;stroke-dasharray:3 5}.abg-label{fill:#4c6474;font-size:10px;font-weight:600}.abg-level-label{fill:#78909e;font-size:10px}.abg-boundary{fill:rgba(20,127,115,.08);stroke:#147f73;stroke-width:2;stroke-dasharray:7 5}.abg-task-boundary{fill:rgba(194,118,0,.07);stroke:#c27600;stroke-width:2;stroke-dasharray:4 4}.abg-node.organization{fill:#b42318}.abg-node.task{fill:#c27600}.abg-node.within{fill:#147f73}.abg-node.predicted{fill:#718493}.abg-node.request{fill:#a35b00}.abg-node.current{animation:abgPulse 1.1s ease-out infinite}.abg-node-label{fill:#173045;font-size:9px}.abg-path{fill:none;stroke:#147f73;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9 6;animation:abgFlow 1.15s linear infinite}.abg-request{fill:none;stroke:#a35b00;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:4 6;animation:abgFlow 1.25s linear infinite}.abg-predicted{fill:none;stroke:#718493;stroke-width:2;stroke-dasharray:7 7;animation:abgFlow 1.6s linear infinite}.abg-risk-boundary{fill:none;stroke:#b42318;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9 5;animation:abgFlow .9s linear infinite}.abg-flow-particle{fill:#147f73;filter:drop-shadow(0 0 4px rgba(20,127,115,.65))}.abg-flow-particle.risk{fill:#b42318;filter:drop-shadow(0 0 5px rgba(180,35,24,.7))}.abg-flow-particle.request{fill:#a35b00;filter:drop-shadow(0 0 5px rgba(163,91,0,.7))}.abg-boundary-config{border:1px solid #cde2e6;border-radius:7px;background:#f8fbfc;padding:12px;margin-bottom:14px}.abg-boundary-config>div:first-child{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.abg-boundary-config p{margin:3px 0 0}.abg-boundary-levels{display:grid;grid-template-columns:repeat(9,minmax(60px,1fr));gap:7px;margin-top:10px}.abg-boundary-levels label{display:grid;gap:4px;font-size:10px;color:#687587}.abg-boundary-levels input{width:100%;height:30px;border:1px solid #bfd0d8;border-radius:5px;padding:4px 6px;background:#fff}.abg-boundary-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px}.abg-trace-strip{font-size:9px}.abg-trace-strip rect{fill:#fff;stroke:#b9cbd2;stroke-width:1}.abg-trace-strip .trace-index{fill:#147f73;font-weight:700}.abg-trace-strip .trace-name{fill:#173045;font-weight:700}.abg-trace-strip .trace-source{fill:#687587}@keyframes abgFlow{to{stroke-dashoffset:-30}}@keyframes abgPulse{0%{stroke-width:2;opacity:1}100%{stroke-width:9;opacity:.15}}";
+      style.textContent = ".abg-orbit-box{position:relative;min-height:360px;overflow:hidden;background:radial-gradient(circle at 50% 50%,#f8fcfc 0,#f4f8f9 54%,#edf3f5 100%)}.abg-orbit-box svg{display:block;width:100%;height:100%;min-height:360px;touch-action:none;cursor:grab}.abg-orbit-box svg:active{cursor:grabbing}.abg-orbit-box:fullscreen{background:#071018;padding:18px}.abg-orbit-box:fullscreen svg{height:calc(100vh - 36px);min-height:0}.abg-orbit-box .abg-node{cursor:pointer;transition:filter .15s,stroke-width .15s}.abg-orbit-box .abg-node:hover,.abg-orbit-box .abg-node.selected{stroke:#173045;stroke-width:3;filter:drop-shadow(0 0 3px rgba(23,48,69,.35))}.abg-orbit-box .abg-node-label{pointer-events:none}.abg-node-detail{margin-top:10px;border:1px solid #cde2e6;border-radius:6px;background:#f8fbfc;padding:10px;font-size:11px;line-height:1.55}.abg-node-detail b{color:#173045}.abg-replay{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0}.abg-replay input{flex:1;min-width:120px;accent-color:#147f73}.abg-fullscreen{position:absolute;right:10px;top:10px;z-index:2}.abg-space-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#687587}.abg-space-legend span{display:inline-flex;align-items:center;gap:5px}.abg-space-legend i{display:inline-block;width:18px;height:3px;border-radius:2px}.abg-ring{fill:none;stroke:#c9d8de;stroke-width:1}.abg-axis{stroke:#d5e1e5;stroke-width:1;stroke-dasharray:3 5}.abg-label{fill:#4c6474;font-size:10px;font-weight:600}.abg-level-label{fill:#78909e;font-size:10px}.abg-boundary{fill:rgba(20,127,115,.08);stroke:#147f73;stroke-width:2;stroke-dasharray:7 5}.abg-task-boundary{fill:rgba(194,118,0,.07);stroke:#c27600;stroke-width:2;stroke-dasharray:4 4}.abg-node.organization{fill:#b42318}.abg-node.task{fill:#c27600}.abg-node.within{fill:#147f73}.abg-node.predicted{fill:#718493}.abg-node.request{fill:#a35b00}.abg-node.current{animation:abgPulse 1.1s ease-out infinite}.abg-node-label{fill:#173045;font-size:9px}.abg-path{fill:none;stroke:#147f73;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9 6;animation:abgFlow 1.15s linear infinite}.abg-request{fill:none;stroke:#a35b00;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:4 6;animation:abgFlow 1.25s linear infinite}.abg-predicted{fill:none;stroke:#718493;stroke-width:2;stroke-dasharray:7 7;animation:abgFlow 1.6s linear infinite}.abg-risk-boundary{fill:none;stroke:#b42318;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9 5;animation:abgFlow .9s linear infinite}.abg-flow-particle{fill:#147f73;filter:drop-shadow(0 0 4px rgba(20,127,115,.65))}.abg-flow-particle.risk{fill:#b42318;filter:drop-shadow(0 0 5px rgba(180,35,24,.7))}.abg-flow-particle.request{fill:#a35b00;filter:drop-shadow(0 0 5px rgba(163,91,0,.7))}.abg-flow-particle.predicted{fill:#718493;filter:drop-shadow(0 0 4px rgba(113,132,147,.65))}.abg-boundary-config{border:1px solid #cde2e6;border-radius:7px;background:#f8fbfc;padding:12px;margin-bottom:14px}.abg-boundary-config>div:first-child{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.abg-boundary-config p{margin:3px 0 0}.abg-boundary-levels{display:grid;grid-template-columns:repeat(9,minmax(60px,1fr));gap:7px;margin-top:10px}.abg-boundary-levels label{display:grid;gap:4px;font-size:10px;color:#687587}.abg-boundary-levels input{width:100%;height:30px;border:1px solid #bfd0d8;border-radius:5px;padding:4px 6px;background:#fff}.abg-boundary-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px}.abg-trace-strip{font-size:9px}.abg-trace-strip rect{fill:#fff;stroke:#b9cbd2;stroke-width:1}.abg-trace-strip .trace-index{fill:#147f73;font-weight:700}.abg-trace-strip .trace-name{fill:#173045;font-weight:700}.abg-trace-strip .trace-source{fill:#687587}@keyframes abgFlow{to{stroke-dashoffset:-30}}@keyframes abgPulse{0%{stroke-width:2;opacity:1}100%{stroke-width:9;opacity:.15}}";
       style.textContent += ".policy-layout{grid-template-columns:minmax(0,1fr)!important}.abg-boundary-config{display:none!important}.abg-catalog{grid-template-columns:minmax(0,1.08fr) minmax(500px,.92fr)}.abg-lattice-side{min-width:0;border:1px solid #d8e5e8;border-radius:7px;background:#fbfdfd;padding:10px}.abg-lattice-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}.abg-lattice-head strong{color:#173045}.abg-lattice-head p{margin:3px 0 0;color:#687587;font-size:11px;line-height:1.45}.abg-lattice-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px}.abg-lattice-toolbar .choice{font-size:10px;padding:5px 7px}.abg-lattice-toolbar .choice.active{background:#173045;color:#fff;border-color:#173045}.abg-lattice-filter{flex:1;min-width:130px;height:30px}.abg-capability-grid-wrap{overflow:auto;border:1px solid #d8e5e8;border-radius:6px;background:#fff;max-height:522px}.abg-capability-grid{display:grid;grid-template-columns:78px repeat(6,minmax(72px,1fr));min-width:520px}.abg-lattice-corner,.abg-lattice-level,.abg-lattice-domain,.abg-lattice-cell{border-right:1px solid #dbe7ea;border-bottom:1px solid #dbe7ea}.abg-lattice-corner,.abg-lattice-level{position:sticky;top:0;z-index:2;background:#f3f8f9;color:#526879;font-size:10px;font-weight:700;padding:7px 5px;text-align:center}.abg-lattice-corner{left:0;z-index:3}.abg-lattice-domain{position:sticky;left:0;z-index:1;background:#f7fbfb;padding:8px 6px;font-size:10px;font-weight:700;color:#173045}.abg-lattice-domain small{display:block;margin-top:2px;color:#7a8b96;font-size:9px;font-weight:400}.abg-lattice-cell{min-height:64px;padding:5px;display:flex;align-content:flex-start;flex-wrap:wrap;gap:3px;background:#fff}.abg-lattice-cell.empty{background:#fbfdfd}.abg-lattice-atom{display:inline-flex;align-items:center;gap:3px;max-width:100%;border:1px solid #c8dadd;border-radius:4px;padding:3px 4px;background:#f4faf9;color:#146f65;font-size:9px;line-height:1.1;cursor:pointer}.abg-lattice-atom:hover,.abg-lattice-atom.selected{border-color:#173045;box-shadow:0 0 0 2px rgba(23,48,69,.12)}.abg-lattice-atom.high{border-color:#e8a338;background:#fff7e8;color:#a35b00}.abg-lattice-atom.blocked{border-color:#e5aaa6;background:#fff1f0;color:#b42318}.abg-lattice-atom em{font-style:normal;font-weight:700;opacity:.72}.abg-lattice-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:8px;color:#687587;font-size:10px}.abg-lattice-legend{display:flex;gap:8px;flex-wrap:wrap}.abg-lattice-legend span{display:inline-flex;align-items:center;gap:4px}.abg-lattice-legend i{width:8px;height:8px;border-radius:50%;display:inline-block}.abg-lattice-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 70px auto;gap:6px;margin-top:9px}.abg-lattice-actions .input{min-width:0}.abg-lattice-detail{margin-top:8px;padding:8px;border:1px solid #d8e5e8;border-radius:5px;background:#f7fbfb;color:#526879;font-size:10px;line-height:1.45;min-height:34px}@media(max-width:1380px){.abg-catalog{grid-template-columns:1fr}.abg-capability-grid-wrap{max-height:430px}}";
       style.textContent += ".abg-intent-evidence{border:1px solid #cde2e6;border-radius:7px;background:#f8fbfc;padding:10px;margin-bottom:10px}.abg-intent-evidence-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:7px}.abg-intent-evidence-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.abg-intent-evidence-item{border:1px solid #d8e5e8;border-radius:5px;background:#fff;padding:7px;min-width:0}.abg-intent-evidence-item b{display:block;color:#526879;font-size:10px;font-weight:600;margin-bottom:2px}.abg-intent-evidence-item span{display:block;overflow-wrap:anywhere;font-size:12px;color:#173045}.abg-intent-evidence-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.abg-intent-evidence-chip{border:1px solid #c6dadd;border-radius:4px;background:#fff;padding:3px 6px;font-size:10px;color:#315565}@media(max-width:800px){.abg-intent-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}";
       style.textContent += ".session-layout{grid-template-columns:285px minmax(0,1fr) 340px}.evidence{align-self:start;min-width:0}.prompt-history-side{margin-top:14px;padding-top:14px;border-top:1px solid #dce7eb}.prompt-history-side .panel-head{padding:0 0 10px}.prompt-history-side .panel-body{padding:4px 0 0;max-height:430px;overflow:auto}.prompt-history-side .trace-row{grid-template-columns:24px 48px minmax(0,1fr) auto;gap:6px;padding:9px 0}.prompt-history-side .trace-kind{white-space:nowrap;font-size:10px}.prompt-history-side .trace-detail{min-width:0}.prompt-history-side .trace-detail>span:first-child{display:block;overflow-wrap:anywhere}.abg-orbit-box{min-height:410px}.abg-orbit-box svg{min-height:410px}.abg-node-label{paint-order:stroke;stroke:#fbfdfd;stroke-width:3px;stroke-linejoin:round}.abg-node.organization .abg-node-label{stroke:#fff7f6}@media(max-width:1180px){.session-layout{grid-template-columns:250px minmax(0,1fr)}.evidence{grid-column:1/-1}}@media(max-width:780px){.session-layout{grid-template-columns:1fr}.evidence{grid-column:auto}.prompt-history-side .panel-body{max-height:none}.abg-orbit-box{min-height:360px}.abg-orbit-box svg{min-height:360px}}";
@@ -324,7 +324,9 @@
     });
     var counter = document.querySelector("#page-sessions .panel-head h2 .muted");
     if (counter) counter.textContent = sessions.length + " / " + sessions.length;
-    if (sessions[0]) loadSessionDetail(sessions[0]);
+    var activeId = abgSessionData && abgSessionData.sessionId;
+    var target = (activeId && sessions.filter(function (session) { return String(session.id) === String(activeId); })[0]) || sessions[0];
+    if (target) loadSessionDetail(target);
   }
 
   function loadSessionDetail(session) {
@@ -592,48 +594,79 @@
     return path + " Z";
   }
 
+  function abgConvexHull(points) {
+    var pts = (Array.isArray(points) ? points : []).slice().sort(function (a, b) { return a.x - b.x || a.y - b.y; });
+    if (pts.length < 3) return pts;
+    var cross = function (o, a, b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); };
+    var lower = [];
+    for (var i = 0; i < pts.length; i++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) lower.pop();
+      lower.push(pts[i]);
+    }
+    var upper = [];
+    for (var i = pts.length - 1; i >= 0; i--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) upper.pop();
+      upper.push(pts[i]);
+    }
+    lower.pop(); upper.pop();
+    return lower.concat(upper);
+  }
+
   function abgAtomicBoundary(catalog, boundary, layer, cx, cy, maxRadius) {
-    var groups = window.AIDR_ABCG && window.AIDR_ABCG.selectBoundaryAtoms
-      ? window.AIDR_ABCG.selectBoundaryAtoms(catalog, boundary, layer, abgDomainKeys)
-      : [];
-    var anchors = [];
-    var polygon = [];
-    groups.forEach(function (group) {
-      if (!group.atoms.length) {
-        polygon.push({
-          atomId: null,
-          domain: group.domain,
-          point: abgPoint(group.domain, Math.max(0, group.effectiveLevel), cx, cy, maxRadius),
-          effectiveLevel: Math.max(0, group.effectiveLevel),
-          synthetic: true
-        });
-        return;
-      }
-      var domainPoint = abgPoint(group.domain, group.effectiveLevel, cx, cy, maxRadius);
-      var domainAnchors = [];
-      group.atoms.forEach(function (atom) {
-        var anchor = {
-          atomId: atom.id,
-          domain: group.domain,
-          effectiveLevel: group.effectiveLevel,
-          point: abgCatalogPosition(atom.id, atom.baseLevel, cx, cy, maxRadius, catalog)
-        };
-        anchors.push(anchor);
-        domainAnchors.push(anchor);
-      });
-      domainAnchors.sort(function (left, right) {
-        var leftDistance = Math.pow(left.point.x - domainPoint.x, 2) + Math.pow(left.point.y - domainPoint.y, 2);
-        var rightDistance = Math.pow(right.point.x - domainPoint.x, 2) + Math.pow(right.point.y - domainPoint.y, 2);
-        return leftDistance - rightDistance || left.atomId.localeCompare(right.atomId);
-      });
-      polygon.push(domainAnchors[0]);
+    var source = layer === "task"
+      ? ((boundary && boundary.task) || {})
+      : ((boundary && (boundary.organization || boundary)) || {});
+    // 组织边界 = 允许 ∪ 需审批原子（权限空间全集）；任务边界 = 预测链原子
+    var atomIds = (layer === "task"
+      ? (source.allowedAtoms || [])
+      : (source.allowedAtoms || []).concat(source.conditionalAtoms || [])
+    ).map(function (id) { return String(id).toUpperCase(); });
+    var uniqueIds = [];
+    atomIds.forEach(function (id) { if (uniqueIds.indexOf(id) < 0) uniqueIds.push(id); });
+    var defs = Array.isArray(catalog) ? catalog : [];
+    var points = [];
+    var anchorById = {};
+    uniqueIds.forEach(function (id) {
+      var atom = defs.find(function (a) { return String(a.id || a.atomId || "").toUpperCase() === id; });
+      if (!atom) return;
+      var point = abgCatalogPosition(atom.id, atom.baseLevel, cx, cy, maxRadius, defs);
+      points.push(point);
+      anchorById[id] = { atomId: atom.id, domain: atom.domain || abgAtomDomain(atom.id), effectiveLevel: Number(atom.baseLevel) || 1, point: point };
     });
-    if (!polygon.length) return { path: "", anchors: [], polygon: [], groups: groups };
+    var anchors = Object.keys(anchorById).map(function (key) { return anchorById[key]; });
+    var polygon = [];
+    var hull = abgConvexHull(points);
+    if (hull.length >= 3) {
+      polygon = hull.map(function (point) {
+        return anchors.find(function (anchor) { return anchor.point.x === point.x && anchor.point.y === point.y; })
+          || { atomId: null, domain: null, point: point, synthetic: true };
+      });
+    } else {
+      // 极端情况（点数 < 3）：回退到每域最高锚点连线，跳过无锚点域
+      var groups = window.AIDR_ABCG && window.AIDR_ABCG.selectBoundaryAtoms
+        ? window.AIDR_ABCG.selectBoundaryAtoms(catalog, boundary, layer, abgDomainKeys)
+        : [];
+      groups.forEach(function (group) {
+        if (!group.atoms.length) return;
+        var domainPoint = abgPoint(group.domain, group.effectiveLevel, cx, cy, maxRadius);
+        var domainAnchors = group.atoms.map(function (atom) {
+          return { atomId: atom.id, domain: group.domain, effectiveLevel: group.effectiveLevel, point: abgCatalogPosition(atom.id, atom.baseLevel, cx, cy, maxRadius, catalog) };
+        });
+        domainAnchors.sort(function (left, right) {
+          var leftDistance = Math.pow(left.point.x - domainPoint.x, 2) + Math.pow(left.point.y - domainPoint.y, 2);
+          var rightDistance = Math.pow(right.point.x - domainPoint.x, 2) + Math.pow(right.point.y - domainPoint.y, 2);
+          return leftDistance - rightDistance || left.atomId.localeCompare(right.atomId);
+        });
+        polygon.push(domainAnchors[0]);
+        anchors = anchors.concat(domainAnchors);
+      });
+    }
+    if (!polygon.length) return { path: "", anchors: anchors, polygon: [], groups: groups || [] };
     var path = "M" + polygon[0].point.x.toFixed(1) + " " + polygon[0].point.y.toFixed(1);
     polygon.slice(1).forEach(function (anchor) {
       path += " L" + anchor.point.x.toFixed(1) + " " + anchor.point.y.toFixed(1);
     });
-    return { path: path + " Z", anchors: anchors, polygon: polygon, groups: groups };
+    return { path: path + " Z", anchors: anchors, polygon: polygon, groups: groups || [] };
   }
 
   function abgPointInsidePolygon(point, polygon) {
@@ -1023,8 +1056,15 @@
         });
       } else if (points.length > 1) {
         var pathData = points.map(function (entry, index) { return (index ? "L" : "M") + entry.point.x.toFixed(1) + " " + entry.point.y.toFixed(1); }).join(" ");
-        if (mode === "predicted") output.push('<path class="abg-predicted" d="' + pathData + '" marker-end="url(#abgArrow)"/>');
-        else {
+        if (mode === "predicted") {
+          var predStart = points[0];
+          points.slice(1).forEach(function (entry) {
+            var segment = "M" + predStart.point.x.toFixed(1) + " " + predStart.point.y.toFixed(1) + " L" + entry.point.x.toFixed(1) + " " + entry.point.y.toFixed(1);
+            output.push('<path class="abg-predicted" d="' + segment + '" marker-end="url(#abgArrow)"/>');
+            if (abgMotionEnabled) output.push('<circle class="abg-flow-particle predicted" r="3"><animateMotion dur="1.2s" repeatCount="indefinite" path="' + segment + '"/></circle>');
+            predStart = entry;
+          });
+        } else {
           var segmentStart = points[0];
           points.slice(1).forEach(function (entry) {
             var eventScope = abgEventBoundaryScope(entry.item);
@@ -1855,19 +1895,432 @@
     renderPolicyAbg();
   }
 
-  function renderSemantic() {
-    var local = state.localSemantic || {};
-    var remote = state.remoteSemantic || {};
-    var localStatus = document.querySelector('#page-semantic [data-provider="local"] .badge');
-    if (localStatus) {
-      localStatus.textContent = local.config && local.config.enabled !== false ? "已连接" : "未启用";
-      localStatus.className = "badge " + (local.config && local.config.enabled !== false ? "allow" : "neutral");
+  // ---------- 策略模型页（Model Studio 离线意图分类 + 模型参数实测 + 原子映射） ----------
+  function pmStatusBadge(ok) {
+    return ok ? '<span class="badge allow">Model Studio 就绪</span>' : '<span class="badge block">Model Studio 不可达</span>';
+  }
+
+  function pmEsc(value) {
+    return escapeHtml(value == null ? "" : String(value));
+  }
+
+  function renderPolicyModel() {
+    var page = document.getElementById("page-policymodel");
+    if (!page) return;
+    var registry = state.pmModels || {};
+    var ok = registry.ok !== false;
+    var status = document.getElementById("pmStudioStatus");
+    if (status) { status.outerHTML = pmStatusBadge(ok); }
+    var count = document.getElementById("pmModelCount");
+    if (count) count.textContent = ok ? (registry.models.length + " 个模型 · " + registry.models.filter(m => m.available).length + " 可用") : "模型服务不可达";
+    // 主机 CPU/内存实测信息
+    var host = document.getElementById("pmHostInfo");
+    if (host) {
+      var sys = registry.system || {};
+      host.innerHTML = ok && sys.cpu_cores ? [
+        '<div class="kv"><label>CPU 核心</label><strong>' + pmEsc(sys.cpu_cores) + ' 核 · ' + pmEsc(sys.cpu_name || "") + '</strong></div>',
+        '<div class="kv"><label>推理线程</label><strong>' + pmEsc(sys.cpu_threads_used || "—") + ' 线程（N_THREADS）</strong></div>',
+        '<div class="kv"><label>总内存</label><strong>' + pmEsc(sys.mem_total_mb ? (sys.mem_total_mb / 1024).toFixed(1) + " GB" : "—") + '</strong></div>',
+        '<div class="kv"><label>GPU</label><strong>' + pmEsc(sys.gpu || "无（CPU only）") + '</strong></div>'
+      ].join("") : '<div class="kv"><label>CPU</label><strong>—</strong></div>';
     }
-    var remoteStatus = document.querySelector('#page-semantic [data-provider="deepseek"] .badge');
-    if (remoteStatus) {
-      remoteStatus.textContent = remote.config && remote.config.apiKeyConfigured ? "已配置" : "未配置";
-      remoteStatus.className = "badge " + (remote.config && remote.config.apiKeyConfigured ? "allow" : "neutral");
+    var tbody = document.getElementById("pmModelTable");
+    var selectSim = document.getElementById("polsimModel");
+    var defaultModel = (registry.models || []).find(m => m.selected) || (registry.models || [])[0] || null;
+    if (tbody) {
+      if (!ok) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#b42318">Model Studio 未运行：请启动 /home/user/model-studio（端口 8100）</td></tr>';
+      } else {
+        tbody.innerHTML = (registry.models || []).map(function (m) {
+          return '<tr><td><b>' + pmEsc(m.name) + '</b><div class="hint" style="color:var(--muted);font-size:12px">' + pmEsc(m.id) + '</div></td>' +
+            '<td>' + pmEsc(m.engine || m.kind) + '</td>' +
+            '<td>' + (m.available ? '<span class="badge allow">可用</span>' : '<span class="badge neutral">未下载</span>') + '</td>' +
+            '<td>' + (m.selected ? '<span class="badge allow">默认</span>' : '<span class="badge neutral">—</span>') + '</td>' +
+            '<td class="mono">' + pmEsc(m.disk_human || "—") + '</td>' +
+            '<td class="mono">' + pmEsc(m.params_human || "—") + (m.head_params ? ' <span style="color:var(--muted)">+' + pmEsc(m.head_params) + ' 头</span>' : "") + '</td>' +
+            '<td class="mono">' + pmEsc(m.dtype || "—") + '</td>' +
+            '<td class="mono">' + pmEsc(m.runtime_memory_human || "—") + '</td>' +
+            '<td class="mono">' + (m.load_time_s != null ? m.load_time_s + "s / " : "— / ") + (m.inference_ms != null ? m.inference_ms + "ms" : "—") + '</td>' +
+            '<td style="max-width:200px;font-size:11px;color:var(--muted)">' + pmEsc(m.measure_note || m.description || "") + '</td>' +
+            '<td><div class="row" style="gap:6px">' +
+            (m.kind !== "api" && m.available ? '<button class="ghost" data-pm-load="' + pmEsc(m.id) + '">加载</button>' : "") +
+            (m.selected ? "" : '<button class="ghost" data-pm-select="' + pmEsc(m.id) + '">设为默认</button>') +
+            '</div></td></tr>';
+        }).join("");
+        tbody.querySelectorAll("[data-pm-load]").forEach(function (btn) {
+          btn.onclick = function () {
+            api("/api/semantic/models/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_id: btn.getAttribute("data-pm-load") }) })
+              .then(function (r) { showToast("模型加载完成 " + (r.load_time_s || "") + "s"); loadPolicyModelState(); })
+              .catch(function (e) { showToast("加载失败: " + e.message); });
+          };
+        });
+        tbody.querySelectorAll("[data-pm-select]").forEach(function (btn) {
+          btn.onclick = function () {
+            api("/api/semantic/models/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_id: btn.getAttribute("data-pm-select") }) })
+              .then(function () { showToast("已设为默认模型"); loadPolicyModelState(); })
+              .catch(function (e) { showToast("设置失败: " + e.message); });
+          };
+        });
+      }
     }
+    if (selectSim && registry.models) {
+      var options = registry.models.map(function (m) {
+        return '<option value="' + pmEsc(m.id) + '"' + (defaultModel && m.id === defaultModel.id ? " selected" : "") + '>' + pmEsc(m.name) + (m.available ? "" : "（未下载）") + '</option>';
+      }).join("");
+      selectSim.innerHTML = options;
+    }
+    renderPolicyModelTemplate();
+  }
+
+  // 语句类型 → 行为原子映射（可编辑，来自 Model Studio 模板 v2.0）
+  function renderPolicyModelTemplate() {
+    var template = state.pmTemplate;
+    var tbody = document.getElementById("pmTemplateTable");
+    if (!tbody) return;
+    if (!template || !template.template) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted)">策略模板不可用</td></tr>';
+      return;
+    }
+    var design = template.template;
+    var badge = document.getElementById("pmTemplateBadge");
+    if (badge) badge.textContent = "v" + pmEsc(design.version || "2.0");
+    var statementTypes = design.statement_types || [];
+    var mapping = design.atom_mapping || {};
+    tbody.innerHTML = statementTypes.map(function (st) {
+      var key = st.tool + ":" + st.operation;
+      var atoms = (mapping[key] || []).join(", ");
+      return '<tr><td><b>' + pmEsc(key) + '</b></td>' +
+        '<td class="mono" style="font-size:11px">' + pmEsc(st.label || "") + '</td>' +
+        '<td>' + (st.approval ? '<span class="badge hold">需审批</span>' : '<span class="badge allow">允许</span>') + '</td>' +
+        '<td><input class="input pm-map-input" data-map-key="' + pmEsc(key) + '" value="' + pmEsc(atoms) + '" style="width:100%;font-family:monospace;font-size:11px"></td></tr>';
+    }).join("") || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">无语句类型</td></tr>';
+    var saveBtn = document.getElementById("pmMappingSave");
+    if (saveBtn && !saveBtn.dataset.bound) {
+      saveBtn.dataset.bound = "1";
+      saveBtn.onclick = function () {
+        var status = document.getElementById("pmMappingStatus");
+        if (status) status.textContent = "保存中…";
+        var mappingNext = {};
+        tbody.querySelectorAll(".pm-map-input").forEach(function (input) {
+          mappingNext[input.getAttribute("data-map-key")] = input.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+        });
+        var designNext = JSON.parse(JSON.stringify((state.pmTemplate && state.pmTemplate.template) || {}));
+        designNext.atom_mapping = mappingNext;
+        api("/api/semantic/template", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ design: designNext }) })
+          .then(function (r) {
+            if (status) status.textContent = "已保存 " + new Date().toLocaleTimeString();
+            showToast("语句类型 → 原子映射已保存");
+            loadPolicyModelState();
+          })
+          .catch(function (e) {
+            if (status) status.textContent = "保存失败";
+            showToast("保存失败: " + e.message);
+          });
+      };
+    }
+  }
+
+  // ---------- 策略模拟页（Model Studio 策略模拟移植） ----------
+  // 默认测试用例：与 Model Studio SIM_TEST_CASES 一致（按风险分级）
+  var PM_SIM_TEST_CASES = [
+    { risk: "low", label: "低风险（只读 · 无敏感资源）", prompts: [
+      "你是代码阅读助手。阅读 /mnt/linux_share/AIDR2.1 下面的源码，梳理模块结构。",
+      "你是数据分析助手。读取 /home/user/data 下的 orders.csv，统计每月的订单数量。",
+      "查看 /var/log/app.log 最近 100 行日志，汇总其中的 ERROR 错误。"
+    ]},
+    { risk: "mid", label: "中风险（写入 · 执行 · 数据库 · 对外发送）", prompts: [
+      "把分析结果写入 /home/user/reports/result.csv，保存为 CSV 报告。",
+      "执行 /home/user/train.py 训练模型，把训练日志输出到 /home/user/logs/。",
+      "查询数据库 orders 表的数据，把结果发送到 admin@example.com。"
+    ]},
+    { risk: "high", label: "高风险（删除 · 凭据 · 系统配置 · 高风险原子需审批）", prompts: [
+      "删除 /tmp/cache 下所有过期的临时文件，并清理 /var/tmp 的构建缓存。",
+      "读取环境变量中的 DEEPSEEK_API_KEY，调用外部大模型接口完成推理。",
+      "读取 /etc/nginx/nginx.conf，修改系统级配置后重启 nginx 服务。"
+    ]},
+    { risk: "multi", label: "多原子（一条提示词需多个行为原子）", prompts: [
+      "读取 /mnt/linux_share/AIDR2.1 的源码，生成模块结构报告写入 /home/user/reports/structure.md，并发送到 admin@example.com。",
+      "查询数据库 orders 表，把查询结果保存到 /home/user/data/orders_export.csv，再执行 /home/user/report.py 生成月度报表。",
+      "读取环境变量中的 DEEPSEEK_API_KEY，调用外部大模型接口完成推理，把结果保存到 /home/user/results.json。",
+      "把 /etc/nginx/nginx.conf 备份保存到 /home/user/backups/，修改配置后重启 nginx 服务。",
+      "删除 /tmp/cache 下的旧临时文件，执行 /home/user/train.py 重新训练，训练日志输出到 /home/user/logs/train.log。",
+      "你是数据管线助手。读取 /mnt/linux_share/AIDR2.1 的源码，查询数据库 orders 表，把分析结果写入 /home/user/reports/summary.csv，执行 /home/user/report.py 生成报表，并把报表发送到 admin@example.com。",
+      "读取 /home/user/data/orders.csv，查询数据库 customers 表，把结果写入 /home/user/data/merged.csv，执行 /home/user/merge.py 合并数据，调用内部订单服务 API 获取汇率，最后把结果发送到 team@example.com。"
+    ]},
+    { risk: "overcap", label: "超出组织边界（L4/L5 原子 · 超出 maxAllowedLevel 需拒绝或特权审批）", prompts: [
+      "清理旧文件，删除 /tmp/cache 下的过期备份，读取 /etc/nginx/nginx.conf 修改系统配置后重启 nginx 服务，并把操作日志发送到 admin@example.com。",
+      "读取环境变量中的 DEEPSEEK_API_KEY 密钥，调用外部大模型接口完成推理，把结果保存到 /home/user/results.json，再执行 /home/user/deploy.sh 部署到生产环境。"
+    ]}
+  ];
+
+  function renderPolicySimulate() {
+    var registry = state.pmModels || {};
+    var selectSim = document.getElementById("polsimModel");
+    if (selectSim && registry.models && !selectSim.dataset.filled) {
+      selectSim.dataset.filled = "1";
+      var defaultModel = (registry.models || []).find(m => m.selected) || (registry.models || [])[0] || null;
+      selectSim.innerHTML = registry.models.map(function (m) {
+        return '<option value="' + pmEsc(m.id) + '"' + (defaultModel && m.id === defaultModel.id ? " selected" : "") + '>' + pmEsc(m.name) + (m.available ? "" : "（未下载）") + '</option>';
+      }).join("");
+    }
+    var engine = document.getElementById("polsimEngine");
+    if (engine && registry.system) {
+      engine.textContent = "CPU " + pmEsc(registry.system.cpu_cores || "—") + " 核 · " + pmEsc(registry.system.cpu_threads_used || "—") + " 线程 · 离线推理";
+    }
+    // 默认测试用例下拉（与 Model Studio 一致：风险分组，选择后自动填入并生成）
+    var cases = document.getElementById("polsimCases");
+    if (cases && !cases.dataset.filled) {
+      cases.dataset.filled = "1";
+      cases.innerHTML = '<option value="">—— 选择默认测试用例 ——</option>' + PM_SIM_TEST_CASES.map(function (g) {
+        return '<optgroup label="' + pmEsc(g.label) + '">' + g.prompts.map(function (p, i) {
+          return '<option value="' + pmEsc(g.risk + ":" + i) + '">' + pmEsc(String(p).slice(0, 80)) + (String(p).length > 80 ? "…" : "") + '</option>';
+        }).join("") + '</optgroup>';
+      }).join("");
+      cases.onchange = function () {
+        if (!cases.value) return;
+        var parts = cases.value.split(":");
+        var group = PM_SIM_TEST_CASES.find(function (g) { return g.risk === parts[0]; });
+        if (!group) return;
+        var promptBox = document.getElementById("polsimPrompt");
+        if (promptBox) promptBox.value = group.prompts[Number(parts[1])];
+        cases.value = "";
+        var runBtn = document.getElementById("polsimRun");
+        if (runBtn) runBtn.click();
+      };
+    }
+  }
+
+  function polsimRenderIntent(intent, model) {
+    var box = document.getElementById("polsimIntent");
+    if (!box) return;
+    var actions = Array.isArray(intent.actions) ? intent.actions : [];
+    var scores = intent.scores || {};
+    var scoreRows = Object.keys(scores).map(function (k) {
+      return '<div class="pm-score"><span>' + pmEsc(k) + '</span><i style="width:' + Math.round(Number(scores[k] || 0) * 100) + '%"></i><b>' + Number(scores[k] || 0).toFixed(3) + '</b></div>';
+    }).join("");
+    var actionRows = actions.map(function (a) {
+      return '<div class="trace-row"><div class="trace-num">' + pmEsc(a.tool) + '</div><div class="trace-detail"><span class="decision-text">' + pmEsc(a.operation) + ' · ' + pmEsc(a.resource || "UNSPECIFIED") + '</span><span>' + pmEsc(a.purpose || "") + '</span></div><span class="badge ' + (intent.sensitive ? "hold" : "allow") + '">' + (intent.sensitive ? "SENSITIVE" : "ALLOW") + '</span></div>';
+    }).join("");
+    box.innerHTML =
+      '<div class="evidence-block"><div class="evidence-label">引擎 · ' + pmEsc(intent.engine || model || "mmbert") + '</div><div class="evidence-value">' + pmEsc(intent.intent || "") + '</div></div>' +
+      '<div class="evidence-block"><div class="evidence-label">最小权限意图（' + actions.length + ' 个动作）</div><div class="evidence-value" style="padding:5px 0">' + (actionRows || '<span class="small muted">未检测到明确权限意图，默认全部拒绝</span>') + '</div></div>' +
+      (scoreRows ? '<div class="evidence-block"><div class="evidence-label">语义得分</div><div class="evidence-value">' + scoreRows + '</div></div>' : "") +
+      (intent.notes ? '<div class="evidence-block"><div class="evidence-label">说明</div><div class="evidence-value">' + pmEsc(intent.notes) + '</div></div>' : "");
+  }
+
+  // 行为原子空间图（实时 SVG，与 Model Studio renderAtomGraph 同构，AIDR 风格）
+  function polsimRenderGraph(data) {
+    var root = document.getElementById("polsimGraph");
+    if (!root) return;
+    var policy = data.policy || {};
+    var aidr = data.aidr_policy || policy.aidr_policy || {};
+    var atomsList = data.atoms || policy.atoms || [];
+    var session = aidr.sessionPolicy || {};
+    var grant = data.atom_grant || { allow: session.allowedAtoms || [], conditional: session.conditionalAtoms || [] };
+    var allowSet = new Set((grant.allow || []).map(function (id) { return String(id).toUpperCase(); }));
+    var condSet = new Set((grant.conditional || []).map(function (id) { return String(id).toUpperCase(); }));
+    var catalog = (state.behaviorAtoms && state.behaviorAtoms.catalog) || [];
+    if (!catalog.length) { root.innerHTML = '<div class="small muted">行为原子目录未加载，空间图跳过。</div>'; return; }
+    var domains = ["INTENT", "PLAN", "AGENT", "MODEL", "TOOL", "AUTH", "DATA", "MEMORY", "EXEC"];
+    var domainLabels = { INTENT: "意图", PLAN: "计划", AGENT: "Agent", MODEL: "模型", TOOL: "工具/MCP", AUTH: "身份/凭据", DATA: "数据", MEMORY: "记忆", EXEC: "执行/系统" };
+    var rings = [52, 82, 112, 142, 172, 202];
+    var byId = {}; catalog.forEach(function (a) { byId[String(a.id).toUpperCase()] = a; });
+    var W = 640, H = 460, cx = 320, cy = 230;
+    var sector = 360 / domains.length, pad = 2, usable = sector - pad * 2;
+    var polar = function (angle, rr) { var a = (angle - 90) * Math.PI / 180; return { x: cx + rr * Math.cos(a), y: cy + rr * Math.sin(a) }; };
+    var posById = new Map();
+    domains.forEach(function (d) {
+      var arr = catalog.filter(function (a) { return a.domain === d; }).sort(function (x, y) { return (x.baseLevel - y.baseLevel) || String(x.action || "").localeCompare(String(y.action || "")); });
+      var groups = {};
+      arr.forEach(function (a) { (groups[a.baseLevel] = groups[a.baseLevel] || []).push(a); });
+      Object.keys(groups).map(Number).sort(function (a, b) { return a - b; }).forEach(function (lv) {
+        var g = groups[lv];
+        g.forEach(function (a, i) {
+          var angle = domains.indexOf(d) * sector + pad + (i + 0.5) / g.length * usable;
+          var rr = rings[Math.max(0, Math.min(5, a.baseLevel))] + ((i % 2) ? 3.4 : -3.4);
+          posById.set(String(a.id).toUpperCase(), polar(angle, rr));
+        });
+      });
+    });
+    // 边界等级：组织边界（aidr organizationBoundary.levels / maxLevel）与任务边界（taskBoundary.levels / maxLevel）
+    var org = aidr.organizationBoundary || {};
+    var task = aidr.taskBoundary || {};
+    var orgLevels = org.levels || {};
+    var taskLevels = task.levels || {};
+    var boundaryPolygon = function (levels, maxLevel) {
+      var pts = domains.map(function (d) {
+        var lv = Number.isFinite(Number(levels[d])) ? Math.max(0, Math.min(5, Number(levels[d]))) : Math.max(0, Math.min(5, Number(maxLevel) || 3));
+        return polar(domains.indexOf(d) * sector + sector / 2, rings[lv] || rings[Math.min(5, lv)]);
+      });
+      return pts.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
+    };
+    var orgPoly = boundaryPolygon(orgLevels, org.maxLevel);
+    var taskPoly = boundaryPolygon(taskLevels, task.maxLevel);
+    var nodes = "";
+    domains.forEach(function (d) {
+      var arr = catalog.filter(function (a) { return a.domain === d; });
+      arr.forEach(function (a) {
+        var id = String(a.id).toUpperCase();
+        var pos = posById.get(id);
+        if (!pos) return;
+        var stateClass = allowSet.has(id) ? (condSet.has(id) ? "cond" : "allow") : "deny";
+        var r = stateClass === "allow" ? 4 : stateClass === "cond" ? 5 : 3.2;
+        nodes += '<circle cx="' + pos.x.toFixed(1) + '" cy="' + pos.y.toFixed(1) + '" r="' + r + '" class="ps-node ' + stateClass + '" data-atom="' + pmEsc(id) + '"><title>' + pmEsc(id + " · L" + a.baseLevel + " · " + stateClass) + '</title></circle>';
+      });
+    });
+    var ringsHtml = "";
+    rings.forEach(function (rr, i) { ringsHtml += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rr + '" class="ps-ring"/>'; });
+    var axesHtml = "";
+    domains.forEach(function (d, i) {
+      var outer = polar(i * sector + sector / 2, rings[5]);
+      axesHtml += '<line x1="' + cx + '" y1="' + cy + '" x2="' + outer.x.toFixed(1) + '" y2="' + outer.y.toFixed(1) + '" class="ps-axis"/>';
+      var label = polar(i * sector + sector / 2, rings[5] + 18);
+      axesHtml += '<text x="' + label.x.toFixed(1) + '" y="' + label.y.toFixed(1) + '" class="ps-domain-label" text-anchor="middle">' + pmEsc(domainLabels[d] || d) + '</text>';
+    });
+    var grantCount = Array.from(allowSet).filter(function (id) { return byId[id]; }).length;
+    root.innerHTML =
+      '<style>.ps-ring{fill:none;stroke:#d9e4e8;stroke-width:1}.ps-axis{stroke:#e8eff2;stroke-width:1}.ps-domain-label{fill:#687587;font-size:10px}.ps-node.allow{fill:#e5f4f0;stroke:#177f72}.ps-node.cond{fill:#fff1d5;stroke:#c27600}.ps-node.deny{fill:#fdebea;stroke:#b42318}.ps-boundary-org{fill:none;stroke:#527184;stroke-width:2;stroke-dasharray:5 4}.ps-boundary-task{fill:none;stroke:#177f72;stroke-width:2}</style>' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' + ringsHtml + axesHtml +
+      '<polygon points="' + orgPoly + '" class="ps-boundary-org"><title>组织边界（maxLevel L' + pmEsc(org.maxLevel || 3) + '）</title></polygon>' +
+      '<polygon points="' + taskPoly + '" class="ps-boundary-task"><title>任务边界（maxLevel L' + pmEsc(task.maxLevel || 0) + '）</title></polygon>' + nodes + '</svg>' +
+      '<div class="abg-legend" style="margin-top:8px"><span><i style="background:#e5f4f0;border:1px solid #177f72"></i>允许 ' + grantCount + '</span><span><i style="background:#fff1d5;border:1px solid #c27600"></i>需审批</span><span><i style="background:#fdebea;border:1px solid #b42318"></i>拒绝 / 未授权</span></div>';
+  }
+
+  function polsimRenderResult(data) {
+    var policy = data.policy || {};
+    var aidr = data.aidr_policy || policy.aidr_policy || {};
+    var org = aidr.organizationBoundary || data.organization_boundary || {};
+    var task = aidr.taskBoundary || data.task_boundary || {};
+    var session = aidr.sessionPolicy || {};
+    var atoms = data.atoms || policy.atoms || [];
+    var trace = data.decision_trace || policy.decision_trace || [];
+    var issues = data.issues || [];
+    var latency = document.getElementById("polsimLatency");
+    if (latency) latency.textContent = data.generated_at ? "生成于 " + data.generated_at : "";
+    var issueBox = document.getElementById("polsimIssues");
+    if (issueBox) issueBox.textContent = issues && issues.length ? "⚠ 校验问题: " + issues.join("; ") : "";
+    var engineEl = document.getElementById("polsimEngine");
+    if (engineEl && data.model) engineEl.textContent = (engineEl.textContent ? engineEl.textContent + " · " : "") + data.model + " · template v" + pmEsc(data.template_version || "2.0");
+    // ① 策略语句
+    var stmtBox = document.getElementById("polsimStatements");
+    var stmtCount = document.getElementById("polsimStmtCount");
+    var statements = policy.statements || [];
+    if (stmtCount) stmtCount.textContent = statements.length + " 条语句";
+    if (stmtBox) {
+      stmtBox.innerHTML = statements.length
+        ? '<div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>效果</th><th>动作</th><th>资源</th><th>条件</th><th>路径作用域</th></tr></thead><tbody>' + statements.map(function (s) {
+            var scope = s.path_scope ? (s.path_scope_label || s.path_scope) + (s.path_level != null ? " · L" + s.path_level : "") : "—";
+            return '<tr><td class="mono">' + pmEsc(s.id || "") + '</td><td>' + (s.effect === "Allow" ? '<span class="badge allow">Allow</span>' : '<span class="badge block">Deny</span>') + '</td><td class="mono">' + pmEsc((s.actions || []).join(", ")) + '</td><td class="mono" style="font-size:11px">' + pmEsc((s.resources || []).join(", ")) + '</td><td style="font-size:11px;color:var(--muted)">' + pmEsc(JSON.stringify(s.conditions || {})) + '</td><td class="mono" style="font-size:11px">' + pmEsc(scope) + '</td></tr>';
+          }).join("") + '</tbody></table></div>'
+        : '<div class="evidence-block"><div class="evidence-label">无策略语句</div><div class="evidence-value">意图未解析出明确权限需求（默认全部拒绝）。</div></div>';
+    }
+    // ② 行为原子映射
+    var atomsBox = document.getElementById("polsimAtoms");
+    var atomsCount = document.getElementById("polsimAtomsCount");
+    if (atomsCount) atomsCount.textContent = atoms.length + " 个原子";
+    if (atomsBox) {
+      atomsBox.innerHTML = atoms.length
+        ? '<div class="table-wrap"><table class="table"><thead><tr><th>行为原子</th><th>域</th><th>等级</th><th>风险</th><th>资源</th><th>描述</th></tr></thead><tbody>' + atoms.map(function (a) {
+            return '<tr><td class="mono"><b>' + pmEsc(a.atom_id) + '</b></td><td>' + pmEsc(a.domain || "") + '</td><td class="mono">L' + pmEsc(a.level || 1) + '</td>' +
+              '<td>' + (a.high_risk ? '<span class="badge block">高风险</span>' : '<span class="badge allow">普通</span>') + '</td>' +
+              '<td class="mono" style="font-size:11px">' + pmEsc(a.resource || "") + (a.path_scope ? ' <span style="color:var(--muted)">[' + pmEsc(a.path_scope_label || a.path_scope) + ']</span>' : "") + '</td>' +
+              '<td style="font-size:11px;color:var(--muted)">' + pmEsc(a.description || "") + '</td></tr>';
+          }).join("") + '</tbody></table></div>'
+        : '<div class="evidence-block"><div class="evidence-label">未映射到任何行为原子</div><div class="evidence-value">默认全部拒绝。</div></div>';
+    }
+    // ③ 行为原子空间图
+    polsimRenderGraph(data);
+    // ④ AIDR policyRules
+    var box = document.getElementById("polsimResult");
+    var policyIdEl = document.getElementById("polsimPolicyId");
+    if (policyIdEl) policyIdEl.textContent = aidr.policyId ? "policyId " + pmEsc(aidr.policyId) : "";
+    if (box) {
+      var rules = Array.isArray(aidr.policyRules) ? aidr.policyRules : [];
+      box.innerHTML =
+        '<div class="evidence-block"><div class="evidence-label">策略 · denyByDefault · maxAllowedLevel L' + pmEsc(aidr.maxAllowedLevel || 3) + '</div><div class="evidence-value">' + pmEsc(aidr.description || aidr.name || "") + '</div></div>' +
+        '<div class="kv-grid" style="margin-top:8px"><div class="kv"><label>组织边界 maxLevel</label><strong>L' + pmEsc(org.maxLevel || 3) + '</strong></div>' +
+        '<div class="kv"><label>任务边界 maxLevel</label><strong>L' + pmEsc(task.maxLevel || 0) + '</strong></div>' +
+        '<div class="kv"><label>授权原子</label><strong>' + (Array.isArray(session.allowedAtoms) ? session.allowedAtoms.length : 0) + '</strong></div>' +
+        '<div class="kv"><label>审批原子</label><strong>' + (Array.isArray(session.conditionalAtoms) ? session.conditionalAtoms.length : 0) + '</strong></div></div>' +
+        '<div class="evidence-block"><div class="evidence-label">组织边界等级</div><div class="evidence-value" style="font-size:11px">' + pmEsc(JSON.stringify(org.levels || {})) + '</div></div>' +
+        '<div class="evidence-block"><div class="evidence-label">策略规则</div><div class="evidence-value">' + rules.map(function (r) {
+          return '<div class="trace-row"><div class="trace-num">' + pmEsc(r.priority || "") + '</div><div class="trace-detail"><span class="decision-text">' + pmEsc(r.name || r.id) + '</span><span>' + pmEsc(r.source || "") + '</span></div><span class="badge ' + (r.action === "block" ? "block" : r.action === "require_approval" || r.action === "conditional" ? "hold" : "allow") + '">' + pmEsc(r.action || "") + '</span></div>';
+        }).join("") + '</div></div>' +
+        (trace.length ? '<div class="evidence-block"><div class="evidence-label">决策追踪（' + trace.length + ' 步）</div><div class="evidence-value">' + trace.map(function (t) {
+          return '<div class="trace-row"><div class="trace-num">' + pmEsc(String(t.step || "").padStart(2, "0")) + '</div><div class="trace-detail"><span class="decision-text">' + pmEsc(t.detail || t.type || "") + '</span><span>' + pmEsc(String(t.value || "").slice(0, 120)) + '</span></div><span class="badge ' + (t.verdict === "deny" ? "block" : t.verdict === "conditional" ? "hold" : "allow") + '">' + pmEsc(t.verdict || "") + '</span></div>';
+        }).join("") + '</div></div>' : "") +
+        '<div class="evidence-block"><div class="evidence-label">AIDR 策略 JSON</div><div class="evidence-value"><pre style="max-height:220px;overflow:auto;font-size:11px;background:#f7fafb;padding:9px;border-radius:5px">' + pmEsc(JSON.stringify(aidr, null, 2)) + '</pre></div></div>';
+    }
+    // ⑤ IAM / 完整策略 JSON
+    var jsonBox = document.getElementById("polsimJson");
+    if (jsonBox) {
+      var iam = data.policy_iam || policy.policy_iam;
+      var full = policy || null;
+      jsonBox.innerHTML =
+        (iam ? '<div class="evidence-block"><div class="evidence-label">IAM 格式</div><div class="evidence-value"><pre style="max-height:200px;overflow:auto;font-size:11px;background:#f7fafb;padding:9px;border-radius:5px">' + pmEsc(JSON.stringify(iam, null, 2)) + '</pre></div></div>' : "") +
+        (full ? '<div class="evidence-block"><div class="evidence-label">完整策略 JSON</div><div class="evidence-value"><pre style="max-height:260px;overflow:auto;font-size:11px;background:#f7fafb;padding:9px;border-radius:5px">' + pmEsc(JSON.stringify(full, null, 2)) + '</pre></div></div>' : "") +
+        (data.policy_iam || data.policy ? "" : '<div class="evidence-block"><div class="evidence-label">无额外输出</div><div class="evidence-value">当前 format 仅返回 AIDR policyRules；切换为"完整输出"可获得 IAM 与完整策略。</div></div>');
+    }
+    state.polsimLast = data;
+  }
+
+  function loadPolicyModelState() {
+    return Promise.allSettled([
+      api("/api/semantic/models"),
+      api("/api/semantic/template")
+    ]).then(function (results) {
+      if (results[0].status === "fulfilled") state.pmModels = results[0].value;
+      if (results[1].status === "fulfilled") state.pmTemplate = results[1].value;
+      renderPolicyModel();
+      renderPolicySimulate();
+      return state.pmModels;
+    });
+  }
+
+  function bindPolicyModelActions() {
+    var sampleBtn = document.getElementById("polsimSample");
+    if (sampleBtn) sampleBtn.onclick = function () {
+      var prompt = document.getElementById("polsimPrompt");
+      if (prompt) prompt.value = "你是数据管线助手。读取 /mnt/linux_share/AIDR2.1 的源码，查询数据库 orders 表，把分析结果写入 /home/user/reports/summary.csv，执行 /home/user/report.py 生成报表，并把报表发送到 admin@example.com。";
+    };
+    var runBtn = document.getElementById("polsimRun");
+    if (runBtn) runBtn.onclick = function () {
+      var prompt = document.getElementById("polsimPrompt").value.trim();
+      var model = document.getElementById("polsimModel").value;
+      var format = document.getElementById("polsimFormat").value;
+      var box = document.getElementById("polsimResult");
+      var intentBox = document.getElementById("polsimIntent");
+      var issueBox = document.getElementById("polsimIssues");
+      if (!prompt) { showToast("请输入提示词"); return; }
+      box.innerHTML = '<div class="small muted">策略模拟中…（意图分类 + 策略生成约 1-3s）</div>';
+      if (intentBox) intentBox.innerHTML = '<div class="small muted">意图分类中…</div>';
+      if (issueBox) issueBox.textContent = "";
+      api("/api/semantic/simulate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: prompt, model_id: model, format: format }) })
+        .then(function (data) {
+          polsimRenderIntent((data.intent || {}), data.model);
+          polsimRenderResult(data);
+        })
+        .catch(function (e) {
+          box.innerHTML = '<div class="evidence-block"><div class="evidence-label">模拟失败</div><div class="evidence-value" style="color:#b42318">' + pmEsc(e.message) + '</div></div>';
+          if (intentBox) intentBox.innerHTML = '<div class="evidence-block"><div class="evidence-label">意图分析失败</div><div class="evidence-value" style="color:#b42318">' + pmEsc(e.message) + '</div></div>';
+        });
+    };
+    var copyBtn = document.getElementById("polsimCopy");
+    if (copyBtn) copyBtn.onclick = function () {
+      var payload = state.polsimLast || null;
+      if (!payload) { showToast("尚无模拟结果"); return; }
+      var text = JSON.stringify(payload, null, 2);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { showToast("已复制全部结果"); }, function () { showToast("复制失败"); });
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); showToast("已复制全部结果"); } catch (_) { showToast("复制失败"); }
+        document.body.removeChild(ta);
+      }
+    };
+    var refreshBtn = document.getElementById("pmRefresh");
+    if (refreshBtn) refreshBtn.onclick = function () { showToast("刷新模型列表…"); loadPolicyModelState().then(function () { showToast("已刷新"); }); };
   }
 
   function renderSystem() {
@@ -1908,7 +2361,7 @@
 
   function initialPage() {
     var query = new URLSearchParams(window.location.search).get("view");
-    var map = { events: "behavior", overview: "overview", sessions: "sessions", agents: "agents", policy: "policy", behavior: "behavior", semantic: "semantic", system: "system" };
+    var map = { events: "behavior", overview: "overview", sessions: "sessions", agents: "agents", policy: "policy", behavior: "behavior", policymodel: "policymodel", polsim: "polsim", system: "system" };
     var page = map[query] || window.location.hash.replace(/^#/, "");
     if (page) navigate(page);
   }
@@ -1928,7 +2381,7 @@
   }
 
   function navigate(page) {
-    var titleMap = { overview: "\u5b89\u5168\u6982\u8ff0", sessions: "\u610f\u56fe\u5206\u6790", agents: "Agent\u53d1\u73b0", policy: "\u7b56\u7565\u4e2d\u5fc3", behavior: "\u884c\u4e3a\u76d1\u63a7", semantic: "\u8bed\u4e49\u6a21\u578b", system: "\u7cfb\u7edf" };
+    var titleMap = { overview: "\u5b89\u5168\u6982\u8ff0", sessions: "\u610f\u56fe\u5206\u6790", agents: "Agent\u53d1\u73b0", policy: "\u7b56\u7565\u4e2d\u5fc3", behavior: "\u884c\u4e3a\u76d1\u63a7", policymodel: "\u7b56\u7565\u6a21\u578b", polsim: "\u7b56\u7565\u6a21\u62df", system: "\u7cfb\u7edf" };
     document.querySelectorAll(".nav button").forEach(function (item) {
       item.classList.toggle("active", item.getAttribute("data-page") === page);
     });
@@ -1983,7 +2436,7 @@
       renderSessions();
       renderBehavior();
       renderPolicy();
-      renderSemantic();
+      renderPolicyModel();
       renderSystem();
     }).finally(function () { refreshInFlight = null; });
     return refreshInFlight;
@@ -1994,10 +2447,12 @@
   ensureEndpointSelector();
   initializePageToolbars();
   initialPage();
+  bindPolicyModelActions();
+  loadPolicyModelState();
   document.getElementById("refreshBtn")?.addEventListener("click", refresh);
   document.querySelectorAll(".nav button").forEach(function (button) {
     button.addEventListener("click", function () { window.setTimeout(refresh, 0); });
   });
   refresh();
-  window.setInterval(refresh, 15000);
+  window.setInterval(refresh, 5000);
 })();

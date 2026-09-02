@@ -18,6 +18,7 @@
         levels: Object.assign({}, organization.levels || organization.domainLevels || {}),
         maxLevel: finiteLevel(organization.maxLevel, 3),
         allowedAtoms: (organization.allowedAtoms || []).map(function (id) { return String(id).toUpperCase(); }),
+        conditionalAtoms: (organization.conditionalAtoms || []).map(function (id) { return String(id).toUpperCase(); }),
         deniedAtoms: (organization.deniedAtoms || []).map(function (id) { return String(id).toUpperCase(); }),
         policyVersion: organization.policyVersion || source.policyVersion || null,
         policyRevision: organization.policyRevision == null ? source.policyRevision : organization.policyRevision,

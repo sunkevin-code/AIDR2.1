@@ -24,6 +24,7 @@ const DEFAULT_POLICY_GENERATION_TEMPLATE = [
 ].join("\n");
 
 const PROVIDER_CATALOG = {
+  offline: { label: "Model Studio 离线语义模型", protocol: "offline", endpoint: "http://127.0.0.1:8100", apiKeyEnv: "", defaultModel: "mmbert-base", models: ["mmbert-base", "tinybert-4l-zh", "tinybert-4l-en"] },
   deepseek: { label: "DeepSeek", protocol: "openai", endpoint: "https://api.deepseek.com", apiKeyEnv: "AIDR_DEEPSEEK_API_KEY", defaultModel: "deepseek-v4-flash", models: ["deepseek-v4-flash", "deepseek-v4-pro"] },
   openai: { label: "OpenAI", protocol: "openai", endpoint: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY", defaultModel: "gpt-5.2", models: ["gpt-5.2", "gpt-5-mini"] },
   anthropic: { label: "Anthropic Claude", protocol: "anthropic", endpoint: "https://api.anthropic.com", apiKeyEnv: "ANTHROPIC_API_KEY", defaultModel: "claude-opus-4-6", models: ["claude-opus-4-6", "claude-sonnet-4-6"] },
@@ -32,7 +33,7 @@ const PROVIDER_CATALOG = {
   custom: { label: "Custom OpenAI-compatible", protocol: "openai", endpoint: "https://api.openai.com/v1", apiKeyEnv: "AIDR_LLM_API_KEY", defaultModel: "gpt-5.2", models: [] }
 };
 
-const DEFAULT_CONFIG = { provider: "deepseek", endpoint: "https://api.deepseek.com", model: "deepseek-v4-flash", apiKeyEnv: "AIDR_DEEPSEEK_API_KEY", enabled: false, maxTokens: 512, temperature: 0.1, timeoutMs: 8000, jsonOutput: true, promptMaxChars: 6000, redactPrompts: true, failMode: "rules_only", promptAnalysisTemplate: DEFAULT_PROMPT_ANALYSIS_TEMPLATE, policyGenerationTemplate: DEFAULT_POLICY_GENERATION_TEMPLATE };
+const DEFAULT_CONFIG = { provider: "offline", endpoint: "http://127.0.0.1:8100", model: "mmbert-base", apiKeyEnv: "", enabled: false, maxTokens: 512, temperature: 0.1, timeoutMs: 8000, jsonOutput: true, promptMaxChars: 6000, redactPrompts: true, failMode: "rules_only", promptAnalysisTemplate: DEFAULT_PROMPT_ANALYSIS_TEMPLATE, policyGenerationTemplate: DEFAULT_POLICY_GENERATION_TEMPLATE };
 
 class LLMClassifier {
   constructor(llmConfig) {
@@ -197,6 +198,8 @@ class LLMClassifier {
   }
 
   _callLLM(prompt) {
+    // 离线模式：调用 Model Studio（mmBERT/TinyBERT + intent_head.pt）本地意图分类
+    if (this.config.protocol === "offline") return this._callOffline(prompt);
     return new Promise((resolve, reject) => {
       const apiKey = this._getApiKey();
       if (!apiKey) return reject(new Error("api_key_not_configured:" + this.config.apiKeyEnv));
@@ -250,6 +253,34 @@ class LLMClassifier {
     return typeof value === "string" ? value : "";
   }
 
+  // Model Studio 离线意图分类：POST /api/models/{model}/infer {prompt} -> {intent:{actions,scores,...}}
+  _callOffline(prompt) {
+    return new Promise((resolve, reject) => {
+      let target;
+      try { target = new URL(this.config.endpoint || "http://127.0.0.1:8100"); } catch (_) { return reject(new Error("endpoint_invalid")); }
+      const model = String(this.config.model || "mmbert-base");
+      const requestPath = "/api/models/" + encodeURIComponent(model) + "/infer";
+      const body = JSON.stringify({ prompt: this._redactText(prompt) });
+      const transport = target.protocol === "https:" ? https : http;
+      const req = transport.request({ hostname: target.hostname, port: target.port || (target.protocol === "https:" ? 443 : 80), path: requestPath, method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) }, timeout: Math.max(12000, Number(this.config.timeoutMs) || 12000) }, res => {
+        let data = "";
+        res.on("data", chunk => data += chunk);
+        res.on("end", () => {
+          if (res.statusCode >= 400) return reject(new Error("offline_http_" + res.statusCode + ":" + data.slice(0, 300)));
+          try {
+            const json = JSON.parse(data);
+            // 直接返回 intent 对象（由 _parseResponse 的 intent 分支消费）
+            resolve(JSON.stringify({ intent: json.intent || json }));
+          } catch (_) { reject(new Error("offline_invalid_json")); }
+        });
+      });
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("offline timeout")); });
+      req.write(body);
+      req.end();
+    });
+  }
+
   _normalizeCapabilities(value) {
     if (!Array.isArray(value)) return value && typeof value === "object" ? value : {};
     const result = {};
@@ -270,6 +301,13 @@ class LLMClassifier {
     const cleaned = source.replace(/^\uFEFF/, "").replace(/\x60\x60\x60(?:json)?/gi, "").trim();
     const candidates = [];
     try { candidates.push(JSON.parse(cleaned)); } catch (_) {}
+
+    // Model Studio 离线意图格式：{"intent":{"actions":[...],"scores":{...},"sensitive":...}}
+    for (const candidate of candidates) {
+      const parsed = Array.isArray(candidate) ? candidate[0] : candidate;
+      const intent = parsed && typeof parsed === "object" && parsed.intent && typeof parsed.intent === "object" ? parsed.intent : parsed;
+      if (intent && Array.isArray(intent.actions)) return this._parseOfflineIntent(intent, source);
+    }
 
     // Walk balanced JSON objects so braces in explanations or markdown do not break parsing.
     for (let start = 0; start < cleaned.length; start++) {
@@ -297,6 +335,8 @@ class LLMClassifier {
     for (const candidate of candidates) {
       const parsed = Array.isArray(candidate) ? candidate[0] : candidate;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const intent = parsed.intent && typeof parsed.intent === "object" ? parsed.intent : parsed;
+      if (intent && Array.isArray(intent.actions)) return this._parseOfflineIntent(intent, source);
       const responseKeys = ["verdict", "status", "summary", "risk", "riskLevel", "riskScore", "categories", "capabilities", "allowedOperations", "deniedOperations", "reason", "explanation", "allowedPaths", "allowedDomains", "requireApproval"];
       if (!responseKeys.some(key => Object.prototype.hasOwnProperty.call(parsed, key))) continue;
       const severity = String(parsed.severity || "").toLowerCase();
@@ -330,6 +370,44 @@ class LLMClassifier {
     throw new Error("unable_to_parse_llm_response");
   }
 
+  // Model Studio intent JSON -> LLMClassifier 兼容结果
+  _parseOfflineIntent(intent, source) {
+    const actions = Array.isArray(intent.actions) ? intent.actions : [];
+    const scores = (intent.scores && typeof intent.scores === "object") ? intent.scores : {};
+    const scoreValues = Object.values(scores).map(Number).filter(Number.isFinite);
+    const confidence = scoreValues.length ? Math.max(...scoreValues) : 0;
+    const allowedOperations = actions.map(a => String(a.tool + ":" + a.operation));
+    const allowedPaths = actions.map(a => String(a.resource || "")).filter(v => v && v !== "UNSPECIFIED");
+    const sensitive = Boolean(intent.sensitive);
+    const riskLevel = sensitive ? "medium" : (confidence >= 0.6 ? "low" : "unknown");
+    const capabilities = {};
+    for (const op of allowedOperations) {
+      if (op.startsWith("file:read") || op.startsWith("file:write")) capabilities.fileRead = true;
+      if (op.startsWith("file:write") || op.startsWith("db:write")) capabilities.fileWrite = true;
+      if (op.startsWith("process:") || op.startsWith("system:")) capabilities.shell = true;
+      if (op.startsWith("network:") || op.startsWith("api:") || op.startsWith("secret:")) capabilities.network = true;
+    }
+    return {
+      verdict: sensitive ? "alert" : "allow",
+      severity: sensitive ? "medium" : "info",
+      reason: intent.notes || "Offline intent classification",
+      riskLevel,
+      risk: riskLevel,
+      riskScore: sensitive ? 55 : null,
+      categories: actions.map(a => String(a.tool || "other")),
+      allowedOperations,
+      deniedOperations: [],
+      capabilities,
+      allowedPaths,
+      allowedDomains: actions.filter(a => a.tool === "network" || a.tool === "api").map(a => String(a.resource || "")).filter(Boolean),
+      allowedMcpTools: [],
+      requireApproval: sensitive ? { highRisk: true } : {},
+      confidence,
+      explanation: `Model Studio offline intent: ${allowedOperations.join(", ") || "no actions"} (confidence ${confidence.toFixed(2)})`,
+      raw: source
+    };
+  }
+
   _fallbackAnalysis(event, error) {
     return { source: "rules_only", verdict: "allow", severity: "info", reason: error ? "Semantic model unavailable; rules engine result retained" : "Semantic model disabled", mitreTactic: null, mitreTechnique: null, riskScore: null, categories: [], confidence: 0 };
   }
@@ -348,6 +426,8 @@ class LLMClassifier {
   }
 
   isAvailable() {
+    // 离线模式不需要 API key：只要启用即视为可用（可达性由调用时探测）
+    if (this.config.protocol === "offline") return this.enabled;
     return this.enabled && Boolean(this._getApiKey());
   }
   _loadStoredApiKey() {
@@ -397,6 +477,15 @@ class LLMClassifier {
       const probe = new LLMClassifier(probeConfig);
       probe.runtimeApiKey = String(overrides.apiKey || this._getApiKey() || "").trim();
       return probe.testConnection();
+    }
+    if (this.config.protocol === "offline") {
+      try {
+        const response = await this._callOffline("Return JSON with exactly one key named status and value ok.");
+        const parsed = this._parseResponse(response);
+        return { ok: true, model: this.config.model, response: { status: parsed.status || "ok", intent: parsed.allowedOperations || [] } };
+      } catch (error) {
+        return { ok: false, model: this.config.model, error: String(error.message || error) };
+      }
     }
     if (!this._getApiKey()) return { ok: false, error: "api_key_not_configured", apiKeyEnv: this.config.apiKeyEnv, model: this.config.model };
     try {
